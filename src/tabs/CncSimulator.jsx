@@ -425,41 +425,65 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
     }
     turretBody.position.set(isID ? 20 : 24, 28, 0);
   } else {
-    // Multi-Station Radial Drum Turret (Horizontal Turning Lathe)
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(11, 11, 9.5, 24), ringMat);
-    drum.rotation.x = Math.PI / 2;
-    drum.position.set(24, 22, 0);
+    // Jyoti Slant-Bed CNC Lathe Turret: Octagonal Disc facing Chuck (-X), mounted on right-rear Slant Carriage (+X, +Y, -Z)
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 10, 8), ringMat);
+    drum.rotation.z = Math.PI / 2;
+    drum.position.set(28, 14, -8);
     turretBody.add(drum);
 
+    // Front Turret Cap & Cyan Accent Ring facing spindle
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 11.2, 16), pocketMat);
+    cap.rotation.z = Math.PI / 2;
+    cap.position.set(28, 14, -8);
+    turretBody.add(cap);
+
+    // 8 Radial Tool Holder Blocks around Turret Circumference
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2;
-      const pk = new THREE.Mesh(new THREE.BoxGeometry(3.5, 3.5, 8), pocketMat);
-      pk.position.set(24 + Math.cos(ang) * 11.2, 22 + Math.sin(ang) * 11.2, 0);
-      pk.rotation.z = ang;
+      const pk = new THREE.Mesh(new THREE.BoxGeometry(8, 3.8, 3.8), holderMat);
+      pk.position.set(26, 14 + Math.cos(ang) * 14.5, -8 + Math.sin(ang) * 14.5);
+      pk.rotation.x = ang;
       turretBody.add(pk);
     }
+
+    // Slant-Bed Cross-Slide Carriage behind Turret
+    const carriage = new THREE.Mesh(new THREE.BoxGeometry(16, 18, 18), ringMat);
+    carriage.position.set(38, 16, -10);
+    turretBody.add(carriage);
   }
   assembly.add(turretBody);
 
   const toolPart = new THREE.Group();
 
   if (isID || operation === 'Boring' || operation === 'Drilling' || operation === 'Tapping') {
+    // Horizontal Boring Bar / Drill extending along -X into bore, connected to Turret
     const barLen = 24;
     const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, barLen, 20), holderMat);
     bar.rotation.z = Math.PI / 2;
     bar.position.set(barLen / 2, 0, 0);
     toolPart.add(bar);
 
-    const riser = new THREE.Mesh(new THREE.BoxGeometry(4.5, 24, 4.5), holderMat);
-    riser.position.set(barLen, 12, 0);
-    toolPart.add(riser);
+    if (isVTL) {
+      const riser = new THREE.Mesh(new THREE.BoxGeometry(4.5, 24, 4.5), holderMat);
+      riser.position.set(barLen, 12, 0);
+      toolPart.add(riser);
+    } else {
+      const bracket = new THREE.Mesh(new THREE.BoxGeometry(6, 15, 9), holderMat);
+      bracket.position.set(barLen, 7, -4);
+      toolPart.add(bracket);
+    }
 
-    // ID Insert points OUTWARD (+X toward bore wall / turret side)
-    const idInsert = new THREE.Mesh(new THREE.ConeGeometry(2.6, 5.5, 4), insertMat);
-    idInsert.rotation.z = -Math.PI / 2;
-    idInsert.position.set(2.2, 0, 0);
+    // ID Insert points OUTWARD (+Y in Lathe / +X in VTL toward bore wall)
+    const idInsert = new THREE.Mesh(new THREE.ConeGeometry(2.5, 5.2, 4), insertMat);
+    if (isVTL) {
+      idInsert.rotation.z = -Math.PI / 2;
+      idInsert.position.set(2.0, 0, 0);
+    } else {
+      idInsert.position.set(1.5, 2.0, 0);
+    }
     toolPart.add(idInsert);
-  } else {
+  } else if (isVTL) {
+    // VTL Vertical Tool Post coming down from Crown Turret
     const vPost = new THREE.Mesh(
       new THREE.BoxGeometry(operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.5, 24, 4.5),
       holderMat
@@ -471,21 +495,38 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
     hArm.position.set(13.5, 24, 0);
     toolPart.add(hArm);
 
+    const ins = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 2.2, 4), insertMat);
+    ins.rotation.x = Math.PI / 2;
+    ins.rotation.y = Math.PI / 4;
+    ins.position.set(-1.5, 2.0, 0);
+    toolPart.add(ins);
+  } else {
+    // Horizontal Turning Lathe: Horizontal Square Shank Holder extending from Turret (-X) to OD surface!
+    const shankW = operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.5;
+    const hShank = new THREE.Mesh(new THREE.BoxGeometry(24, 4.8, shankW), holderMat);
+    hShank.position.set(12, 2.2, -2);
+    toolPart.add(hShank);
+
+    const turretAdapter = new THREE.Mesh(new THREE.BoxGeometry(8, 12, 8), holderMat);
+    turretAdapter.position.set(24, 7, -5);
+    toolPart.add(turretAdapter);
+
     if (operation === 'Threading') {
-      const odThreadIns = new THREE.Mesh(new THREE.ConeGeometry(3.2, 6.5, 3), insertMat);
-      odThreadIns.rotation.z = Math.PI / 2;
-      odThreadIns.position.set(-1.5, 1.5, 0);
+      // OD 60-deg Threading Insert pointing DOWN (-Y onto OD surface)
+      const odThreadIns = new THREE.Mesh(new THREE.ConeGeometry(3.2, 6.2, 3), insertMat);
+      odThreadIns.rotation.z = Math.PI;
+      odThreadIns.position.set(1.5, 1.8, 0);
       toolPart.add(odThreadIns);
     } else if (operation === 'Grooving' || operation === 'Parting') {
-      const odGrooveIns = new THREE.Mesh(new THREE.BoxGeometry(2.0, 5.2, 4.0), insertMat);
-      odGrooveIns.position.set(-1.0, 2.0, 0);
+      // Narrow Grooving / Parting Blade pointing DOWN (-Y onto OD)
+      const odGrooveIns = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5.5, 4.0), insertMat);
+      odGrooveIns.position.set(1.0, 1.8, 0);
       toolPart.add(odGrooveIns);
     } else {
-      // OD CNMG Diamond Insert pointing INWARD (-X toward job side)
-      const odDiamondIns = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2.2, 4), insertMat);
-      odDiamondIns.rotation.x = Math.PI / 2;
+      // OD CNMG Diamond Insert pointing DOWN (-Y directly touching OD cutting line!)
+      const odDiamondIns = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2.0, 4), insertMat);
       odDiamondIns.rotation.y = Math.PI / 4;
-      odDiamondIns.position.set(-1.5, 2.0, 0);
+      odDiamondIns.position.set(1.8, 1.2, 0);
       toolPart.add(odDiamondIns);
     }
   }
@@ -902,3 +943,4 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     </div>
   );
 }
+
