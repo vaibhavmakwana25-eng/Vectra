@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Play, Pause, RotateCcw, Box, ZoomIn, ZoomOut, Scissors } from 'lucide-react';
 
-function buildStepMoves(code, domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
+function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
   const tName = (templateName + ' ' + workSide).toUpperCase();
   const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
@@ -22,46 +22,44 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
     const isID = workSide === 'ID';
     const isFace = workSide === 'Face' || operation === 'Facing';
 
-    // Maintain monotonic cut progress along Z so cut material NEVER refills
-    const zSlices = 18;
-    const stepProfile = [];
-    for (let k = 0; k <= zSlices; k++) {
-      stepProfile.push(rawOD);
-    }
-    const boreProfile = [];
-    for (let k = 0; k <= zSlices; k++) {
-      boreProfile.push(isID ? Math.max(8, rawID) : 0);
-    }
-    let maxCutFraction = 0;
+    // High-resolution 60-slice continuous SolidCAM-style stock profile
+    const zSlices = 60;
+    const odProfile = new Array(zSlices + 1).fill(rawOD);
+    const idProfile = new Array(zSlices + 1).fill(isID ? Math.max(8, rawID) : 0);
+    const passTagProfile = new Array(zSlices + 1).fill('raw'); // 'raw' | 'rough' | 'finish' | 'chamfer'
 
     const snapshot = (zVal, curDia, rapid, passType, gcode) => {
       const distFromFace = Math.max(0, Math.min(partLen, -zVal));
       const frac = Math.min(1, distFromFace / partLen);
-      const sliceIdx = Math.min(zSlices, Math.floor(frac * zSlices));
+      const sliceIdx = Math.min(zSlices, Math.round(frac * zSlices));
 
       if (!rapid) {
-        if (frac > maxCutFraction) maxCutFraction = frac;
         for (let i = 0; i <= sliceIdx; i++) {
           if (isID) {
-            boreProfile[i] = Math.max(boreProfile[i], curDia);
+            if (curDia >= idProfile[i]) {
+              idProfile[i] = curDia;
+              passTagProfile[i] = passType;
+            }
           } else {
-            stepProfile[i] = Math.min(stepProfile[i], curDia);
+            if (curDia <= odProfile[i]) {
+              odProfile[i] = curDia;
+              passTagProfile[i] = passType;
+            }
           }
         }
       }
 
-      const activeCutFrac = Math.max(maxCutFraction, frac);
       moves.push({
         x: curDia,
         y: 0,
         z: zVal,
         rapid,
         passType,
-        odProfile: [...stepProfile],
-        idProfile: [...boreProfile],
-        curOD: isID ? rawOD : stepProfile[Math.max(0, sliceIdx)],
-        curID: isID ? boreProfile[Math.max(0, sliceIdx)] : 0,
-        cutFrac: activeCutFrac,
+        odProfile: [...odProfile],
+        idProfile: [...idProfile],
+        passTagProfile: [...passTagProfile],
+        curOD: isID ? rawOD : odProfile[Math.max(0, sliceIdx)],
+        curID: isID ? idProfile[Math.max(0, sliceIdx)] : 0,
         gcode
       });
     };
@@ -75,21 +73,25 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
       for (let d = -peck; d >= -Math.min(45, partLen); d -= peck) {
         for (let s = 1; s <= 6; s++) {
           const zNow = (d * s) / 6;
-          for (let i = 0; i <= zSlices; i++) {
-            if ((i / zSlices) * partLen <= Math.abs(zNow)) {
-              boreProfile[i] = Math.max(boreProfile[i], drillDia);
-            }
+          const frac = Math.min(1, Math.abs(zNow) / partLen);
+          const sIdx = Math.min(zSlices, Math.round(frac * zSlices));
+          for (let i = 0; i <= sIdx; i++) {
+            idProfile[i] = Math.max(idProfile[i], drillDia);
+            passTagProfile[i] = 'rough';
           }
           snapshot(zNow, 0, false, 'rough', `G01 Z${zNow.toFixed(1)} F0.12`);
         }
-        snapshot(4, 0, true, 'rapid', `G00 Z4.0 (CHIP BREAK RETRACT)`);
+        snapshot(4, 0, true, 'rapid', `G00 Z4.0 (PECK RETRACT)`);
       }
       snapshot(18, 0, true, 'rapid', `G28 U0. W0. M05`);
     } else if (operation === 'Threading') {
       const majDia = Number(mfgCfg.threadMajorDia || 24);
       const minDia = Number(mfgCfg.threadMinorDia || 20.32);
       const baseOD = isID ? rawOD : majDia;
-      for (let i = 0; i <= zSlices; i++) stepProfile[i] = baseOD;
+      for (let i = 0; i <= zSlices; i++) {
+        odProfile[i] = baseOD;
+        if (isID) idProfile[i] = minDia;
+      }
       const safeX = isID ? minDia - 6 : majDia + 6;
       const targetLen = Math.min(35, partLen - 5);
       const passRatios = [0.35, 0.65, 0.88, 1.0];
@@ -99,8 +101,13 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
           : majDia - (majDia - minDia) * ratio;
         snapshot(4, safeX, true, 'rapid', `G00 X${safeX.toFixed(1)} Z4.0 (THREAD PASS ${idx + 1}/4)`);
         snapshot(4, px, true, 'rapid', `G00 X${px.toFixed(3)}`);
-        for (let s = 1; s <= 8; s++) {
-          const zStep = -(targetLen * s) / 8;
+        for (let s = 1; s <= 10; s++) {
+          const zStep = -(targetLen * s) / 10;
+          const frac = Math.min(1, Math.abs(zStep) / partLen);
+          const sIdx = Math.min(zSlices, Math.round(frac * zSlices));
+          for (let i = 0; i <= sIdx; i++) {
+            passTagProfile[i] = idx === 3 ? 'finish' : 'rough';
+          }
           snapshot(zStep, px, false, idx === 3 ? 'finish' : 'rough', `G76 X${px.toFixed(3)} Z${zStep.toFixed(1)} F${mfgCfg.threadPitch || 3.0}`);
         }
         snapshot(-targetLen, safeX, true, 'rapid', `G00 X${safeX.toFixed(1)} (RETRACT)`);
@@ -111,6 +118,7 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
         snapshot(fz, rawOD + 3, true, 'rapid', `G00 X${(rawOD + 3).toFixed(1)} Z${fz}`);
         for (let s = 1; s <= 8; s++) {
           const xStep = rawOD - ((rawOD - (isID ? rawID : 0)) * s) / 8;
+          passTagProfile[0] = idx === 2 ? 'finish' : 'rough';
           snapshot(fz, xStep, false, idx === 2 ? 'finish' : 'rough', `G01 X${xStep.toFixed(1)} Z${fz} F0.15`);
         }
         snapshot(fz + 2, rawOD + 3, true, 'rapid', `G00 RETRACT`);
@@ -121,8 +129,16 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
       const targetX = operation === 'Parting' ? 0 : isID ? finOD + 6 : Math.max(12, finOD - 6);
       const startX = isID ? finOD - 4 : rawOD + 2;
       snapshot(cutZ, startX, true, 'rapid', `G00 X${startX.toFixed(1)} Z${cutZ}`);
+      const gIdx = Math.min(zSlices, Math.round((Math.abs(cutZ) / partLen) * zSlices));
       for (let s = 1; s <= 8; s++) {
         const curX = startX + ((targetX - startX) * s) / 8;
+        if (!isID) {
+          odProfile[gIdx] = Math.min(odProfile[gIdx], Math.max(4, curX));
+          if (gIdx + 1 <= zSlices) odProfile[gIdx + 1] = odProfile[gIdx];
+        } else {
+          idProfile[gIdx] = Math.max(idProfile[gIdx], curX);
+        }
+        passTagProfile[gIdx] = 'rough';
         snapshot(cutZ, curX, false, 'rough', `G01 X${curX.toFixed(1)} F0.08`);
       }
       snapshot(16, startX + 4, true, 'rapid', `G28 U0. W0. M05`);
@@ -137,8 +153,8 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
           const nextID = activeID + step;
           snapshot(2, rawID - 2, true, 'rapid', `G00 X${(rawID - 2).toFixed(1)} Z2.0 (ID PASS ${p})`);
           snapshot(2, nextID, true, 'rapid', `G00 X${nextID.toFixed(2)}`);
-          for (let s = 1; s <= 12; s++) {
-            const zProg = (targetZ * s) / 12;
+          for (let s = 1; s <= 15; s++) {
+            const zProg = (targetZ * s) / 15;
             snapshot(-zProg, nextID, false, 'rough', `G01 X${nextID.toFixed(2)} Z-${zProg.toFixed(1)} F0.22`);
           }
           activeID = nextID;
@@ -147,8 +163,8 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
         snapshot(2, finOD, true, 'rapid', `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)`);
-        for (let s = 1; s <= 12; s++) {
-          const zProg = (partLen * s) / 12;
+        for (let s = 1; s <= 15; s++) {
+          const zProg = (partLen * s) / 15;
           snapshot(-zProg, finOD, false, 'finish', `G41 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12`);
         }
         activeID = finOD;
@@ -159,7 +175,7 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
       }
       snapshot(18, rawID - 2, true, 'rapid', `G40 G28 U0. W0. M05`);
     } else {
-      // OD TURNING: Smooth 12-step Z feed per pass + cumulative OD profile (never refills!)
+      // OD TURNING: Smooth 15-step Z feed per pass + permanent step retention
       let activeOD = rawOD;
       const targetZ = Math.max(10, partLen - lenStock);
       if (stage.includes('Rough')) {
@@ -170,8 +186,8 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
           const nextOD = activeOD - step;
           snapshot(2, activeOD + 3, true, 'rapid', `G00 X${(activeOD + 3).toFixed(1)} Z2.0 (ROUGH PASS ${p})`);
           snapshot(2, nextOD, true, 'rapid', `G00 X${nextOD.toFixed(2)}`);
-          for (let s = 1; s <= 12; s++) {
-            const zProg = (targetZ * s) / 12;
+          for (let s = 1; s <= 15; s++) {
+            const zProg = (targetZ * s) / 15;
             snapshot(-zProg, nextOD, false, 'rough', `G01 X${nextOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.25`);
           }
           activeOD = nextOD;
@@ -180,8 +196,8 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
         snapshot(2, finOD, true, 'rapid', `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)`);
-        for (let s = 1; s <= 12; s++) {
-          const zProg = (partLen * s) / 12;
+        for (let s = 1; s <= 15; s++) {
+          const zProg = (partLen * s) / 15;
           snapshot(-zProg, finOD, false, 'finish', `G42 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12`);
         }
         activeOD = finOD;
@@ -293,36 +309,109 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
 
-// Builds a smooth LatheGeometry from an array of { r, y } profile points
-function buildProfileLathe(profileArray, rawOD, rawRad, stickout, isVTL) {
-  const pts = [];
-  const n = profileArray.length - 1;
-  // Start at center axis on chuck side
-  pts.push(new THREE.Vector2(0.01, -stickout / 2));
-  for (let i = 0; i <= n; i++) {
-    // i=0 is free face (+stickout/2), i=n is chuck face (-stickout/2)
-    const fracFromFace = i / n;
-    const yPos = stickout / 2 - fracFromFace * stickout;
-    const dia = profileArray[i];
-    const rad = Math.max(2, (dia / Math.max(10, rawOD)) * rawRad);
-    pts.push(new THREE.Vector2(rad, yPos));
-  }
-  pts.push(new THREE.Vector2(0.01, -stickout / 2));
+// SolidCAM Solid Verify Multi-Zone LatheGeometry:
+// Renders Raw Steel Stock, Rough-Turned Blue Zone, and Finish-Turned Emerald Zone seamlessly!
+function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, rawRad, stickout, planes) {
+  const workGroup = new THREE.Group();
+  const n = odProfile.length - 1;
+  const sliceH = stickout / n;
 
-  const geo = new THREE.LatheGeometry(pts, 48);
-  if (!isVTL) {
-    geo.rotateZ(-Math.PI / 2);
+  const rawMat = new THREE.MeshStandardMaterial({
+    color: 0x94a3b8,
+    metalness: 0.72,
+    roughness: 0.28,
+    clippingPlanes: planes,
+    side: THREE.DoubleSide
+  });
+  const roughMat = new THREE.MeshStandardMaterial({
+    color: 0x0284c7,
+    emissive: 0x0369a1,
+    emissiveIntensity: 0.18,
+    metalness: 0.55,
+    roughness: 0.22,
+    clippingPlanes: planes,
+    side: THREE.DoubleSide
+  });
+  const finishMat = new THREE.MeshStandardMaterial({
+    color: 0x10b981,
+    emissive: 0x047857,
+    emissiveIntensity: 0.18,
+    metalness: 0.5,
+    roughness: 0.16,
+    clippingPlanes: planes,
+    side: THREE.DoubleSide
+  });
+
+  // Group contiguous slices with the same diameter & passTag into smooth cylinders/rings
+  let startIdx = 0;
+  while (startIdx < n) {
+    let endIdx = startIdx + 1;
+    const curOD = odProfile[startIdx];
+    const curID = idProfile[startIdx] || 0;
+    const curTag = passTagProfile[startIdx] || 'raw';
+
+    while (
+      endIdx < n &&
+      Math.abs(odProfile[endIdx] - curOD) < 0.05 &&
+      Math.abs((idProfile[endIdx] || 0) - curID) < 0.05 &&
+      passTagProfile[endIdx] === curTag
+    ) {
+      endIdx++;
+    }
+
+    const segCount = endIdx - startIdx;
+    const segH = segCount * sliceH + 0.06;
+    const yTop = stickout / 2 - startIdx * sliceH;
+    const yCenter = yTop - segH / 2;
+
+    const outerR = Math.max(3, (curOD / Math.max(10, rawOD)) * rawRad);
+    const innerR = curID > 0.5 ? Math.min(outerR - 1.5, Math.max(2, (curID / Math.max(10, rawOD)) * rawRad)) : 0;
+
+    const mat = curTag === 'finish' ? finishMat : curTag === 'rough' || curTag === 'chamfer' ? roughMat : rawMat;
+
+    if (innerR > 0.5) {
+      // Hollow Bore Ring Segment using ExtrudeGeometry for true solid wall thickness!
+      const shape = new THREE.Shape();
+      shape.absarc(0, 0, outerR, 0, Math.PI * 2, false);
+      const hole = new THREE.Path();
+      hole.absarc(0, 0, innerR, 0, Math.PI * 2, true);
+      shape.holes.push(hole);
+
+      const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
+        depth: segH,
+        bevelEnabled: false,
+        curveSegments: 40
+      });
+      extrudeGeo.rotateX(Math.PI / 2);
+      const mesh = new THREE.Mesh(extrudeGeo, mat);
+      mesh.position.y = yTop;
+      workGroup.add(mesh);
+    } else {
+      const cylGeo = new THREE.CylinderGeometry(outerR, outerR, segH, 48);
+      const mesh = new THREE.Mesh(cylGeo, mat);
+      mesh.position.y = yCenter;
+      workGroup.add(mesh);
+    }
+
+    startIdx = endIdx;
   }
-  return geo;
+
+  return workGroup;
 }
 
+// Non-Colliding Operation-Specific Tooling:
+// - VTL: 12-Station Horizontal Crown Turret high & clear on +X/+Y with Vertical Tool Holder reaching tip (0,0,0)
+// - Turning: 8-Station Radial Drum Turret clear on +X/+Y with Tool Holder reaching tip (0,0,0)
+// - OD Operations: Insert tip faces INWARD toward Job (-X)
+// - ID Operations: Insert tip faces OUTWARD toward Bore Wall / Turret (+X)
 function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, holderMat, insertMat) {
   const assembly = new THREE.Group();
 
   const turretBody = new THREE.Group();
   if (isVTL) {
-    const outerRing = new THREE.Mesh(new THREE.CylinderGeometry(15, 15, 6.5, 32, 1, true), ringMat);
-    const topRing = new THREE.Mesh(new THREE.RingGeometry(10, 15, 32), ringMat);
+    // 12-Station Horizontal Crown Ring Turret (VTL)
+    const outerRing = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, 6.5, 36, 1, true), ringMat);
+    const topRing = new THREE.Mesh(new THREE.RingGeometry(10.5, 16, 36), ringMat);
     topRing.rotation.x = -Math.PI / 2;
     topRing.position.y = 3.25;
     turretBody.add(outerRing, topRing);
@@ -330,21 +419,22 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
     for (let i = 0; i < 12; i++) {
       const ang = (i / 12) * Math.PI * 2;
       const st = new THREE.Mesh(new THREE.BoxGeometry(3.8, 7, 3.8), pocketMat);
-      st.position.set(Math.cos(ang) * 12.5, 0, Math.sin(ang) * 12.5);
+      st.position.set(Math.cos(ang) * 13.2, 0, Math.sin(ang) * 13.2);
       st.rotation.y = -ang;
       turretBody.add(st);
     }
-    turretBody.position.set(isID ? 18 : 22, 26, 0);
+    turretBody.position.set(isID ? 20 : 24, 28, 0);
   } else {
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(10.5, 10.5, 9.5, 24), ringMat);
+    // Multi-Station Radial Drum Turret (Horizontal Turning Lathe)
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(11, 11, 9.5, 24), ringMat);
     drum.rotation.x = Math.PI / 2;
-    drum.position.set(22, 22, 0);
+    drum.position.set(24, 22, 0);
     turretBody.add(drum);
 
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2;
       const pk = new THREE.Mesh(new THREE.BoxGeometry(3.5, 3.5, 8), pocketMat);
-      pk.position.set(22 + Math.cos(ang) * 10.8, 22 + Math.sin(ang) * 10.8, 0);
+      pk.position.set(24 + Math.cos(ang) * 11.2, 22 + Math.sin(ang) * 11.2, 0);
       pk.rotation.z = ang;
       turretBody.add(pk);
     }
@@ -354,30 +444,31 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
   const toolPart = new THREE.Group();
 
   if (isID || operation === 'Boring' || operation === 'Drilling' || operation === 'Tapping') {
-    const barLen = 22;
+    const barLen = 24;
     const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, barLen, 20), holderMat);
     bar.rotation.z = Math.PI / 2;
     bar.position.set(barLen / 2, 0, 0);
     toolPart.add(bar);
 
-    const riser = new THREE.Mesh(new THREE.BoxGeometry(4.5, 22, 4.5), holderMat);
-    riser.position.set(barLen, 11, 0);
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(4.5, 24, 4.5), holderMat);
+    riser.position.set(barLen, 12, 0);
     toolPart.add(riser);
 
+    // ID Insert points OUTWARD (+X toward bore wall / turret side)
     const idInsert = new THREE.Mesh(new THREE.ConeGeometry(2.6, 5.5, 4), insertMat);
     idInsert.rotation.z = -Math.PI / 2;
     idInsert.position.set(2.2, 0, 0);
     toolPart.add(idInsert);
   } else {
     const vPost = new THREE.Mesh(
-      new THREE.BoxGeometry(operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.5, 22, 4.5),
+      new THREE.BoxGeometry(operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.5, 24, 4.5),
       holderMat
     );
-    vPost.position.set(3.5, 11, 0);
+    vPost.position.set(3.5, 12, 0);
     toolPart.add(vPost);
 
-    const hArm = new THREE.Mesh(new THREE.BoxGeometry(18, 4.5, 4.5), holderMat);
-    hArm.position.set(12.5, 22, 0);
+    const hArm = new THREE.Mesh(new THREE.BoxGeometry(20, 4.5, 4.5), holderMat);
+    hArm.position.set(13.5, 24, 0);
     toolPart.add(hArm);
 
     if (operation === 'Threading') {
@@ -390,6 +481,7 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
       odGrooveIns.position.set(-1.0, 2.0, 0);
       toolPart.add(odGrooveIns);
     } else {
+      // OD CNMG Diamond Insert pointing INWARD (-X toward job side)
       const odDiamondIns = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2.2, 4), insertMat);
       odDiamondIns.rotation.x = Math.PI / 2;
       odDiamondIns.rotation.y = Math.PI / 4;
@@ -426,8 +518,8 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
   const isVTL = machineType === 'VTL';
 
   const moves = useMemo(
-    () => buildStepMoves(code, domainKey, workSide, operation, templateName, mfgCfg),
-    [code, domainKey, workSide, operation, templateName, mfgCfg]
+    () => buildStepMoves(domainKey, workSide, operation, templateName, mfgCfg),
+    [domainKey, workSide, operation, templateName, mfgCfg]
   );
 
   useEffect(() => {
@@ -439,22 +531,23 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     if (!playing || moves.length === 0) return;
     const timer = setInterval(() => {
       setStepIdx((prev) => (prev + 1 >= moves.length ? 0 : prev + 1));
-    }, Math.max(55, Math.round(240 / speed)));
+    }, Math.max(50, Math.round(220 / speed)));
     return () => clearInterval(timer);
   }, [playing, moves, speed]);
 
+  // SolidCAM Solid Verify Light Studio Environment
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
     const width = container.clientWidth || 400;
-    const height = 380;
+    const height = 385;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#64748b');
+    scene.background = new THREE.Color('#cbd5e1'); // Clean SolidCAM Studio Light-Slate Theme
 
-    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
-    camera.position.set(145, 110, 165);
+    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 1000);
+    camera.position.set(145, 108, 162);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -471,7 +564,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     controls.target.set(6, 6, 0);
     controlsRef.current = controls;
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.35);
     keyLight.position.set(150, 220, 170);
     scene.add(keyLight);
@@ -480,7 +573,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     fillLight.position.set(-140, 80, -130);
     scene.add(fillLight);
 
-    const grid = new THREE.GridHelper(260, 26, 0x334155, 0x475569);
+    const grid = new THREE.GridHelper(260, 26, 0x64748b, 0x94a3b8);
     grid.position.y = -48;
     scene.add(grid);
 
@@ -521,7 +614,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     const ctrl = controlsRef.current;
     if (!cam || !ctrl) return;
     ctrl.target.set(6, 6, 0);
-    if (view === 'iso') cam.position.set(145, 110, 165);
+    if (view === 'iso') cam.position.set(145, 108, 162);
     else if (view === 'top') cam.position.set(6, 225, 0.1);
     else if (view === 'front') cam.position.set(6, 12, 220);
     else if (view === 'side') cam.position.set(220, 12, 0);
@@ -556,26 +649,10 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       side: THREE.DoubleSide
     });
     const jawMat = new THREE.MeshStandardMaterial({
-      color: 0xcbd5e1,
+      color: 0xf8fafc,
       metalness: 0.85,
       roughness: 0.22,
       clippingPlanes: planes
-    });
-    const rawStockMat = new THREE.MeshStandardMaterial({
-      color: 0x475569,
-      metalness: 0.65,
-      roughness: 0.35,
-      clippingPlanes: planes,
-      side: THREE.DoubleSide
-    });
-    const machinedMat = new THREE.MeshStandardMaterial({
-      color: 0x0ea5e9,
-      emissive: 0x0369a1,
-      emissiveIntensity: 0.22,
-      metalness: 0.6,
-      roughness: 0.18,
-      clippingPlanes: planes,
-      side: THREE.DoubleSide
     });
 
     if (domainKey === 'Turning') {
@@ -586,51 +663,34 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
 
       const spindleGroup = new THREE.Group();
       if (!isVTL) {
+        // Horizontal Turning Lathe: Chuck on LEFT (-X), Job extending RIGHT (+X)
         spindleGroup.rotation.z = -Math.PI / 2;
       }
+      // VTL: Flat Rotary Chuck Table at BOTTOM (-Y), Job standing VERTICALLY UP (+Y)
       spindleGroupRef.current = spindleGroup;
 
-      // 1. 3-Jaw Chuck + Steel Jaws
-      const chuckMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad + 11, rawRad + 11, 18, 48), chuckMat);
-      chuckMesh.position.y = -stickout / 2 - 9;
+      // 1. Chuck Body + Jaws (4-Jaw Heavy Table for VTL, 3-Jaw Chuck for Turning)
+      const chuckRad = isVTL ? rawRad + 15 : rawRad + 10;
+      const chuckH = isVTL ? 12 : 18;
+      const chuckMesh = new THREE.Mesh(new THREE.CylinderGeometry(chuckRad, chuckRad, chuckH, 48), chuckMat);
+      chuckMesh.position.y = -stickout / 2 - chuckH / 2;
       spindleGroup.add(chuckMesh);
 
-      for (let j = 0; j < 3; j++) {
-        const ang = (j * Math.PI * 2) / 3;
-        const jawMesh = new THREE.Mesh(new THREE.BoxGeometry(8, 12, 11), jawMat);
-        jawMesh.position.set(Math.cos(ang) * (rawRad + 3), -stickout / 2 + 4, Math.sin(ang) * (rawRad + 3));
+      const numJaws = isVTL ? 4 : 3;
+      for (let j = 0; j < numJaws; j++) {
+        const ang = (j * Math.PI * 2) / numJaws;
+        const jawMesh = new THREE.Mesh(new THREE.BoxGeometry(8, 10, 10), jawMat);
+        jawMesh.position.set(Math.cos(ang) * (rawRad + 3.5), -stickout / 2 + 3.5, Math.sin(ang) * (rawRad + 3.5));
         jawMesh.rotation.y = -ang;
         spindleGroup.add(jawMesh);
       }
 
-      // 2. Smooth Lathe-Revolved Workpiece (Continuous slice-by-slice material removal!)
+      // 2. SolidCAM Solid Verify Multi-Zone Stepped Workpiece
       const odProf = current.odProfile || [rawOD];
-      const latheGeo = buildProfileLathe(odProf, rawOD, rawRad, stickout, isVTL);
-      const jobMesh = new THREE.Mesh(latheGeo, machinedMat);
-      spindleGroup.add(jobMesh);
-
-      // Uncut outer collar reference on uncut region so raw vs machined transition is super sharp
-      const cutFrac = current.cutFrac || 0;
-      const uncutH = Math.max(0.2, stickout * (1 - cutFrac));
-      if (uncutH > 0.5 && workSide !== 'ID') {
-        const collarMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad, rawRad, uncutH, 48), rawStockMat);
-        collarMesh.position.y = -stickout / 2 + uncutH / 2;
-        spindleGroup.add(collarMesh);
-      }
-
-      // Inner Bore if ID / Drilling
-      const idProf = current.idProfile || [];
-      const maxIdDia = idProf.length > 0 ? Math.max(...idProf) : 0;
-      if (maxIdDia > 1 && cutFrac > 0.02) {
-        const boreRad = Math.max(3, (maxIdDia / Math.max(10, rawOD)) * rawRad);
-        const boreH = Math.max(2, stickout * cutFrac);
-        const boreMesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(boreRad, boreRad, boreH + 0.4, 36),
-          new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5, clippingPlanes: planes })
-        );
-        boreMesh.position.y = stickout / 2 - boreH / 2 + 0.2;
-        spindleGroup.add(boreMesh);
-      }
+      const idProf = current.idProfile || [0];
+      const tagProf = current.passTagProfile || ['raw'];
+      const solidWorkpiece = buildSolidVerifyWorkpiece(odProf, idProf, tagProf, rawOD, rawRad, stickout, planes);
+      spindleGroup.add(solidWorkpiece);
 
       group.add(spindleGroup);
 
@@ -643,13 +703,15 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
         return new THREE.Vector3(stickout / 2 + zNorm, rad, 0);
       };
 
+      // Toolpath Trajectory Lines
       for (let i = 1; i < history.length; i++) {
         const p1 = mapTurnVec(history[i - 1]);
         const p2 = mapTurnVec(history[i]);
-        const col = history[i].rapid ? 0xe11d48 : history[i].passType === 'finish' ? 0x0284c7 : 0x059669;
+        const col = history[i].rapid ? 0xe11d48 : history[i].passType === 'finish' ? 0x059669 : 0x0284c7;
         group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: col })));
       }
 
+      // Non-Colliding Turret & Operation-Specific Insert
       const tip = mapTurnVec(current);
       const ringMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.78, roughness: 0.26 });
       const pocketMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.55, roughness: 0.22 });
@@ -661,6 +723,23 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       group.add(toolObj);
     } else {
       spindleGroupRef.current = null;
+      const rawStockMat = new THREE.MeshStandardMaterial({
+        color: 0x94a3b8,
+        metalness: 0.72,
+        roughness: 0.28,
+        clippingPlanes: planes,
+        side: THREE.DoubleSide
+      });
+      const machinedMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        emissive: 0x0369a1,
+        emissiveIntensity: 0.18,
+        metalness: 0.55,
+        roughness: 0.2,
+        clippingPlanes: planes,
+        side: THREE.DoubleSide
+      });
+
       const blkW = Math.min(96, Number(mfgCfg.stockX || 100) * 0.85);
       const blkD = Math.min(76, Number(mfgCfg.stockY || 80) * 0.85);
       const blkH = Math.min(34, Math.max(16, Number(mfgCfg.stockZ || 30) * 0.85));
@@ -697,7 +776,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       for (let i = 1; i < history.length; i++) {
         const p1 = mapMillVec(history[i - 1]);
         const p2 = mapMillVec(history[i]);
-        const col = history[i].rapid ? 0xe11d48 : history[i].passType === 'finish' ? 0x0284c7 : 0x059669;
+        const col = history[i].rapid ? 0xe11d48 : history[i].passType === 'finish' ? 0x059669 : 0x0284c7;
         group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: col })));
       }
 
@@ -728,11 +807,11 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
   const activeID = current.curID ?? (workSide === 'ID' ? Number(mfgCfg.rawIdDia || 20) : 0);
 
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-full min-h-[610px]">
+    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-full min-h-[615px]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Box className="w-4 h-4" />
-          <span>3D {operation} ({workSide}) Step-by-Step Sim</span>
+          <span>SolidCAM 3D Verify ({isVTL ? 'VTL Rotary Table' : domainKey})</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -784,8 +863,9 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
         </div>
       </div>
 
-      <div className="my-2 bg-slate-500 border border-slate-600 rounded-xl overflow-hidden relative shadow-inner">
-        <div ref={mountRef} className="w-full h-[380px] cursor-grab active:cursor-grabbing" />
+      {/* SolidCAM Solid Verify Light Studio Viewport */}
+      <div className="my-2 bg-slate-300 border border-slate-400 rounded-xl overflow-hidden relative shadow-inner">
+        <div ref={mountRef} className="w-full h-[385px] cursor-grab active:cursor-grabbing" />
 
         <div className="absolute top-2 left-2.5 right-2.5 flex justify-between items-center text-[10px] font-mono bg-slate-900/85 text-slate-100 px-2.5 py-1 rounded border border-slate-700 pointer-events-none">
           <span className="font-bold">
@@ -797,9 +877,9 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
         </div>
 
         <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-2.5 text-[10px] font-mono bg-slate-900/85 text-slate-100 px-2.5 py-1 rounded-md border border-slate-700 pointer-events-none">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-700 border border-slate-400"></span> Raw Stock</span>
-          <span className="flex items-center gap-1 text-sky-300"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500"></span> Machined</span>
-          <span className="flex items-center gap-1 text-cyan-300"><span className="w-2.5 h-2.5 rounded-sm bg-cyan-500"></span> Turret</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-400"></span> Raw Stock</span>
+          <span className="flex items-center gap-1 text-sky-300"><span className="w-2.5 h-2.5 rounded-sm bg-sky-600"></span> Rough Cut</span>
+          <span className="flex items-center gap-1 text-emerald-300"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span> Finish Cut</span>
           <span className="flex items-center gap-1 text-amber-300"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Insert Tip</span>
         </div>
       </div>
