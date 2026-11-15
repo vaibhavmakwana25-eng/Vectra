@@ -304,7 +304,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     scene.background = new THREE.Color('#64748b');
 
     const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
-    camera.position.set(155, 115, 175);
+    camera.position.set(160, 120, 185);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -318,7 +318,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.target.set(8, 12, 0);
+    controls.target.set(8, 10, 0);
     controlsRef.current = controls;
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
@@ -372,8 +372,8 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     const cam = cameraRef.current;
     const ctrl = controlsRef.current;
     if (!cam || !ctrl) return;
-    ctrl.target.set(8, 12, 0);
-    if (view === 'iso') cam.position.set(155, 115, 175);
+    ctrl.target.set(8, 10, 0);
+    if (view === 'iso') cam.position.set(160, 120, 185);
     else if (view === 'top') cam.position.set(8, 230, 0.1);
     else if (view === 'front') cam.position.set(8, 15, 225);
     else if (view === 'side') cam.position.set(225, 15, 0);
@@ -385,7 +385,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     if (cam) cam.position.multiplyScalar(factor);
   };
 
-  // Build Continuous Stepped Solid Workpiece + Proper VTL Horizontal Turret / Lathe Vertical Turret
+  // Build Continuous Stepped Solid Workpiece + Jyoti VTL & Turning Catalog Turrets
   useEffect(() => {
     const group = dynamicGroupRef.current;
     if (!group) return;
@@ -402,8 +402,8 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     const planes = halfCut ? [clipPlaneRef.current] : [];
 
     const chuckMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
-      metalness: 0.8,
+      color: 0x1e293b,
+      metalness: 0.78,
       roughness: 0.28,
       clippingPlanes: planes,
       side: THREE.DoubleSide
@@ -415,7 +415,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       clippingPlanes: planes
     });
     const rawStockMat = new THREE.MeshStandardMaterial({
-      color: 0x334155,
+      color: 0x475569,
       metalness: 0.65,
       roughness: 0.35,
       clippingPlanes: planes,
@@ -424,9 +424,9 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     const machinedMat = new THREE.MeshStandardMaterial({
       color: 0x0ea5e9,
       emissive: 0x0369a1,
-      emissiveIntensity: 0.25,
+      emissiveIntensity: 0.22,
       metalness: 0.6,
-      roughness: 0.16,
+      roughness: 0.18,
       clippingPlanes: planes,
       side: THREE.DoubleSide
     });
@@ -434,9 +434,9 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     if (domainKey === 'Turning') {
       const rawOD = Number(mfgCfg.stockX || 50);
       const partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
-      const stickout = Math.min(72, Math.max(42, Number(mfgCfg.chuckStickout || 65) * 0.85));
+      const stickout = Math.min(68, Math.max(40, Number(mfgCfg.chuckStickout || 65) * 0.82));
 
-      const rawRad = 26;
+      const rawRad = 25;
       const toRad = (dia) => Math.max(4, (dia / Math.max(10, rawOD)) * rawRad);
       const toLen = (zVal) => Math.min(stickout * 0.88, Math.max(0, (zVal / partLen) * (stickout * 0.88)));
 
@@ -444,7 +444,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       const curODRad = toRad(current.curOD ?? rawOD);
       const passLen = toLen(current.passZ || 0);
       const prevPassLen = toLen(current.prevPassZ || 0);
-
       const curIDRad = (current.curID || 0) > 0 ? Math.min(curODRad - 2, toRad(current.curID)) : 0;
 
       const orientGroup = new THREE.Group();
@@ -455,35 +454,32 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       const spindleGroup = new THREE.Group();
       spindleGroupRef.current = spindleGroup;
 
-      // 1. 3-Jaw Chuck Body + High-Contrast Jaws
-      const chuckMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad + 12, rawRad + 12, 22, 48), chuckMat);
-      chuckMesh.position.y = -stickout / 2 - 11;
+      // 1. 3-Jaw Chuck + Steel Jaws
+      const chuckMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad + 11, rawRad + 11, 20, 48), chuckMat);
+      chuckMesh.position.y = -stickout / 2 - 10;
       spindleGroup.add(chuckMesh);
 
       for (let j = 0; j < 3; j++) {
         const ang = (j * Math.PI * 2) / 3;
-        const jawMesh = new THREE.Mesh(new THREE.BoxGeometry(9, 14, 13), jawMat);
-        jawMesh.position.set(Math.cos(ang) * (rawRad + 3.5), -stickout / 2 + 5, Math.sin(ang) * (rawRad + 3.5));
+        const jawMesh = new THREE.Mesh(new THREE.BoxGeometry(8.5, 13, 12), jawMat);
+        jawMesh.position.set(Math.cos(ang) * (rawRad + 3.5), -stickout / 2 + 4.5, Math.sin(ang) * (rawRad + 3.5));
         jawMesh.rotation.y = -ang;
         spindleGroup.add(jawMesh);
       }
 
-      // 2. CONTINUOUS SOLID WORKPIECE (Zero gaps, job NEVER disappears!)
+      // 2. CONTINUOUS SOLID WORKPIECE (Never disappears!)
       const yChuck = -stickout / 2;
       const yFace = stickout / 2;
       const maxCutLen = Math.max(passLen, prevPassLen);
       const yBaseSplit = yFace - maxCutLen;
 
-      // Solid Raw Base from Chuck up to maxCutLen (Always present!)
       const baseH = Math.max(0.5, yBaseSplit - yChuck);
       const baseMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad, rawRad, baseH, 48), rawStockMat);
       baseMesh.position.y = yChuck + baseH / 2;
       spindleGroup.add(baseMesh);
 
-      // Stepped Machined Region from yBaseSplit up to yFace (Always solid, zero missing slices!)
       if (maxCutLen > 0.2) {
         if (passLen < prevPassLen - 0.2) {
-          // Currently midway through a new pass: lower part stays at prevODRad, upper part is at smaller curODRad!
           const lowerH = prevPassLen - passLen;
           const lowerMesh = new THREE.Mesh(new THREE.CylinderGeometry(prevODRad, prevODRad, lowerH, 48), machinedMat);
           lowerMesh.position.y = yBaseSplit + lowerH / 2;
@@ -495,14 +491,12 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
             spindleGroup.add(upperMesh);
           }
         } else {
-          // Single uniform machined cylinder up to passLen
           const singleMesh = new THREE.Mesh(new THREE.CylinderGeometry(curODRad, curODRad, maxCutLen, 48), machinedMat);
           singleMesh.position.y = yFace - maxCutLen / 2;
           spindleGroup.add(singleMesh);
         }
       }
 
-      // Inner ID Bore Cavity
       if (curIDRad > 0.5 && maxCutLen > 0.2) {
         const boreMesh = new THREE.Mesh(
           new THREE.CylinderGeometry(curIDRad, curIDRad, maxCutLen + 0.5, 36),
@@ -525,23 +519,22 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         return new THREE.Vector3(stickout / 2 + zNorm, rad, 0);
       };
 
-      // Toolpath Lines
       for (let i = 1; i < history.length; i++) {
         const p1 = mapTurnVec(history[i - 1]);
         const p2 = mapTurnVec(history[i]);
-        const col = history[i].rapid ? 0xf43f5e : history[i].passType === 'finish' ? 0x38bdf8 : 0x10b981;
+        const col = history[i].rapid ? 0xe11d48 : history[i].passType === 'finish' ? 0x0284c7 : 0x059669;
         group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: col })));
       }
 
-      // JYOTI TURRET ASSEMBLY:
-      // - In VTL: Turret Drum is HORIZONTAL (flat disc lying horizontally above job) with VERTICAL tool pointing straight down!
-      // - In Horizontal Turning: Turret Drum is VERTICAL above job with radial tool pointing down!
+      // JYOTI CATALOG TURRETS:
+      // - VTL (Image 1 & 2): Vertical Column/Ram on right + Horizontal Turret Block + Vertical Tool pointing down
+      // - Turning (Image 3, 4 & 5): Heavy Slant-Bed Saddle + Radial Indexing Turret Drum + Radial Tool pointing down
       const tip = mapTurnVec(current);
       const turretAssembly = new THREE.Group();
 
-      const turretDarkMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.75, roughness: 0.28 });
-      const jyotiCyanMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, emissive: 0x0891b2, emissiveIntensity: 0.25, metalness: 0.5, roughness: 0.2 });
-      const holderMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.85, roughness: 0.22 });
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.78, roughness: 0.28 });
+      const jyotiCyanMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, emissive: 0x0891b2, emissiveIntensity: 0.22, metalness: 0.5, roughness: 0.22 });
+      const holderMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.22 });
       const goldInsertMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xb45309, emissiveIntensity: 0.35, metalness: 0.65, roughness: 0.18 });
 
       const isFacingOp = operation === 'Facing' || workSide === 'Face';
@@ -550,69 +543,75 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
 
       if (isVTL) {
         if (isFacingOp) {
-          // VTL Horizontal Facing Arm coming from right + Horizontal Turret Drum
-          const shank = new THREE.Mesh(new THREE.BoxGeometry(28, 6, 6), holderMat);
-          shank.position.set(14, 0, 0);
-          turretAssembly.add(shank);
+          // VTL Horizontal Facing Arm extending from Horizontal Turret Head on right
+          const hArm = new THREE.Mesh(new THREE.BoxGeometry(30, 6, 6), holderMat);
+          hArm.position.set(15, 0, 0);
+          turretAssembly.add(hArm);
 
-          // Horizontal Turret Disc (Flat along XZ plane!)
-          const hTurret = new THREE.Mesh(new THREE.CylinderGeometry(20, 20, 13, 8), turretDarkMat);
-          hTurret.position.set(42, 4, 0);
-          turretAssembly.add(hTurret);
+          const vtlTurretHead = new THREE.Mesh(new THREE.BoxGeometry(24, 16, 20), bodyMat);
+          vtlTurretHead.position.set(42, 4, 0);
+          turretAssembly.add(vtlTurretHead);
 
-          const jyotiRing = new THREE.Mesh(new THREE.CylinderGeometry(20.5, 20.5, 4, 8), jyotiCyanMat);
-          jyotiRing.position.set(42, 4, 0);
-          turretAssembly.add(jyotiRing);
+          const cyanStrip = new THREE.Mesh(new THREE.BoxGeometry(25, 3.5, 21), jyotiCyanMat);
+          cyanStrip.position.set(42, 8, 0);
+          turretAssembly.add(cyanStrip);
         } else {
-          // VTL Vertical Tool Holder pointing straight DOWN + HORIZONTAL Octagonal Turret Drum on top!
-          const vShank = new THREE.Mesh(new THREE.BoxGeometry(6.5, 28, 6.5), holderMat);
-          vShank.position.set(0, 14, 0);
-          turretAssembly.add(vShank);
+          // VTL Vertical Tool Holder pointing straight down from Horizontal Turret Head (Jyoti VTL Catalog style)
+          const vHolder = new THREE.Mesh(new THREE.BoxGeometry(6, 24, 6), holderMat);
+          vHolder.position.set(0, 12, 0);
+          turretAssembly.add(vHolder);
 
-          // Horizontal Turret Drum (rotation.x = 0 -> lies horizontally above vertical tool!)
-          const hTurret = new THREE.Mesh(new THREE.CylinderGeometry(21, 21, 14, 8), turretDarkMat);
-          hTurret.position.set(14, 34, 0);
-          turretAssembly.add(hTurret);
+          // Horizontal Turret Carriage Block above tool
+          const vtlTurretHead = new THREE.Mesh(new THREE.BoxGeometry(30, 15, 22), bodyMat);
+          vtlTurretHead.position.set(10, 31, 0);
+          turretAssembly.add(vtlTurretHead);
 
-          const jyotiRing = new THREE.Mesh(new THREE.CylinderGeometry(21.5, 21.5, 4, 8), jyotiCyanMat);
-          jyotiRing.position.set(14, 34, 0);
-          turretAssembly.add(jyotiRing);
+          const cyanStrip = new THREE.Mesh(new THREE.BoxGeometry(31, 3.5, 23), jyotiCyanMat);
+          cyanStrip.position.set(10, 35, 0);
+          turretAssembly.add(cyanStrip);
 
-          // Adjacent turret station dummy tool
-          const sideHolder = new THREE.Mesh(new THREE.BoxGeometry(5, 14, 5), holderMat);
-          sideHolder.position.set(28, 22, 0);
-          turretAssembly.add(sideHolder);
+          // Vertical Column Post behind VTL turret
+          const columnPost = new THREE.Mesh(new THREE.BoxGeometry(14, 52, 18), bodyMat);
+          columnPost.position.set(30, 22, -8);
+          turretAssembly.add(columnPost);
         }
       } else {
+        // Horizontal Turning (Jyoti DX / AX Slant-Bed Turret Catalog style)
         if (isBoringOp || isDrillOrTap) {
-          const bar = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 30, 20), holderMat);
+          const bar = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 28, 20), holderMat);
           bar.rotation.z = Math.PI / 2;
-          bar.position.set(15, 0, 0);
+          bar.position.set(14, 0, 0);
           turretAssembly.add(bar);
 
-          const vTurret = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 15, 8), turretDarkMat);
-          vTurret.rotation.x = Math.PI / 2;
-          vTurret.position.set(42, 4, 0);
-          turretAssembly.add(vTurret);
+          const drum = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 16, 12), bodyMat);
+          drum.rotation.x = Math.PI / 2;
+          drum.position.set(40, 4, 0);
+          turretAssembly.add(drum);
 
-          const jyotiBand = new THREE.Mesh(new THREE.CylinderGeometry(18.5, 18.5, 4.5, 8), jyotiCyanMat);
-          jyotiBand.rotation.x = Math.PI / 2;
-          jyotiBand.position.set(42, 4, 0);
-          turretAssembly.add(jyotiBand);
+          const ring = new THREE.Mesh(new THREE.CylinderGeometry(18.5, 18.5, 4, 12), jyotiCyanMat);
+          ring.rotation.x = Math.PI / 2;
+          ring.position.set(40, 4, 0);
+          turretAssembly.add(ring);
         } else {
-          const shank = new THREE.Mesh(new THREE.BoxGeometry(6.5, 24, 6.5), holderMat);
-          shank.position.set(0, 12, 0);
-          turretAssembly.add(shank);
+          // Radial Tool Holder mounted on 12-station Jyoti Turning Turret Drum
+          const rHolder = new THREE.Mesh(new THREE.BoxGeometry(6.5, 22, 6.5), holderMat);
+          rHolder.position.set(0, 11, 0);
+          turretAssembly.add(rHolder);
 
-          const vTurret = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 15, 8), turretDarkMat);
-          vTurret.rotation.x = Math.PI / 2;
-          vTurret.position.set(8, 34, 0);
-          turretAssembly.add(vTurret);
+          const drum = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 16, 12), bodyMat);
+          drum.rotation.x = Math.PI / 2;
+          drum.position.set(8, 32, 0);
+          turretAssembly.add(drum);
 
-          const jyotiBand = new THREE.Mesh(new THREE.CylinderGeometry(18.5, 18.5, 4.5, 8), jyotiCyanMat);
-          jyotiBand.rotation.x = Math.PI / 2;
-          jyotiBand.position.set(8, 34, 0);
-          turretAssembly.add(jyotiBand);
+          const ring = new THREE.Mesh(new THREE.CylinderGeometry(18.5, 18.5, 4, 12), jyotiCyanMat);
+          ring.rotation.x = Math.PI / 2;
+          ring.position.set(8, 32, 0);
+          turretAssembly.add(ring);
+
+          // Slant-Bed Saddle Base under Turret
+          const saddle = new THREE.Mesh(new THREE.BoxGeometry(28, 10, 22), bodyMat);
+          saddle.position.set(14, 46, 0);
+          turretAssembly.add(saddle);
         }
       }
 
