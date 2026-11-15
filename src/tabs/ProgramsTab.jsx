@@ -550,6 +550,54 @@ const buildTurnMillSampleCode = (ctrlName = 'Fanuc') => {
   ].join('\n');
 };
 
+
+const buildTurnMillSampleByName = (sampleName = '', ctrlName = 'Fanuc') => {
+  const u = String(ctrlName || '').toUpperCase();
+  const label = String(sampleName || 'Turn-Mill Live Tool');
+  if (u.includes('SIEMENS')) {
+    return [
+      '; SIEMENS SINUMERIK - ' + label.toUpperCase(),
+      'T1 D1',
+      'SPOS=0',
+      'G94 S1500 M13',
+      'CYCLE83(5.0, 0.0, 2.0, -12.0, , 4.0, , , , , 1)',
+      'G00 Z150.0 M05',
+      'M30'
+    ].join('\n');
+  }
+  if (u.includes('MITSUBISHI')) {
+    return [
+      '%',
+      'O6010 (MITSUBISHI ' + label.toUpperCase() + ')',
+      'G21 G40 G80 G94 G54 G90',
+      'T01 M06',
+      'G00 C0.0',
+      'S1500 M13',
+      'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
+      'G80',
+      'G00 Z100.0 M05',
+      'M30',
+      '%'
+    ].join('\n');
+  }
+  return [
+    '%',
+    'O6010 (FANUC ' + label.toUpperCase() + ')',
+    'G21 G40 G80 G94 G54 G90',
+    'T01 M06',
+    'S1500 M13',
+    'G00 C0.0 Z10.0',
+    'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
+    'G80',
+    'G00 C90.0',
+    'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
+    'G80',
+    'G00 Z100.0 M05',
+    'M30',
+    '%'
+  ].join('\n');
+};
+
 export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhatsApp }) {
   const categories = Object.keys(JYOTI_MACHINE_CASCADE);
   const initialCategory = categories[0] || 'Turning';
@@ -1599,7 +1647,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                 )}
               </div>
             </div>
-            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{operation === 'Turn-Mill' ? buildTurnMillSampleCode(controller, operation) : (p.code)}</pre>
+            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{(typeof selectedSample !== 'undefined' && String(selectedSample).startsWith('Turn-Mill')) || (typeof operation !== 'undefined' && operation === 'Turn-Mill') ? buildTurnMillSampleByName(typeof selectedSample !== 'undefined' ? selectedSample : operation, typeof controller !== 'undefined' ? controller : 'Fanuc') : (operation === 'Turn-Mill' ? buildTurnMillSampleCode(controller, operation) : (p.code))}</pre>
           </div>
         ))}
       </div>
