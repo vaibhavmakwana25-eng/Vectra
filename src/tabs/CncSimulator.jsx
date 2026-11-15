@@ -702,12 +702,14 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       const stickout = Math.min(64, Math.max(38, Number(mfgCfg.chuckStickout || 65) * 0.78));
       const rawRad = 24;
 
-      const spindleGroup = new THREE.Group();
+      // Outer orientation wrapper: Horizontal (-X to +X) for Turning Lathe, Vertical (-Y to +Y) for VTL
+      const orientWrapper = new THREE.Group();
       if (!isVTL) {
-        // Horizontal Turning Lathe: Chuck on LEFT (-X), Job extending RIGHT (+X)
-        spindleGroup.rotation.z = -Math.PI / 2;
+        orientWrapper.rotation.z = -Math.PI / 2;
       }
-      // VTL: Flat Rotary Chuck Table at BOTTOM (-Y), Job standing VERTICALLY UP (+Y)
+
+      // Inner spindleGroup spins strictly around its own local Y centerline!
+      const spindleGroup = new THREE.Group();
       spindleGroupRef.current = spindleGroup;
 
       // 1. Chuck Body + Jaws (4-Jaw Heavy Table for VTL, 3-Jaw Chuck for Turning)
@@ -733,7 +735,8 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       const solidWorkpiece = buildSolidVerifyWorkpiece(odProf, idProf, tagProf, rawOD, rawRad, stickout, planes);
       spindleGroup.add(solidWorkpiece);
 
-      group.add(spindleGroup);
+      orientWrapper.add(spindleGroup);
+      group.add(orientWrapper);
 
       const mapTurnVec = (pt) => {
         const zNorm = ((pt.z || 0) / partLen) * (stickout * 0.88);
@@ -943,4 +946,5 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     </div>
   );
 }
+
 
