@@ -45,9 +45,12 @@ function classifyTemplate(domainKey, name) {
   if (domainKey === 'Turning') {
     let op = 'Turning';
     if (n.includes('THREAD')) op = 'Threading';
-    else if (n.includes('GROOV') || n.includes('PARTING')) op = 'Grooving & Parting';
-    else if (n.includes('FACING')) op = 'Facing';
-    else if (n.includes('DRILL') || n.includes('TAP') || n.includes('REAM')) op = 'Drilling & Tapping';
+    else if (n.includes('PARTING')) op = 'Parting';
+    else if (n.includes('GROOV')) op = 'Grooving';
+    else if (n.includes('FACING') || n.includes('G94') || n.includes('G72')) op = 'Facing';
+    else if (n.includes('TAP')) op = 'Tapping';
+    else if (n.includes('DRILL')) op = 'Drilling';
+    else if (n.includes('BOR') || n.includes(' ID ')) op = 'Boring';
 
     let side = 'OD';
     if (
@@ -63,15 +66,19 @@ function classifyTemplate(domainKey, name) {
       n.startsWith('CYCLE97 ID')
     ) {
       side = 'ID';
-    } else if (n.includes('FACE') || n.includes('FRONT') || n.includes('DRILL') || n.includes('TAP') || n.includes('REAM') || n.includes('G94')) {
+    } else if (n.includes('FACE') || n.includes('FRONT') || n.includes('DRILL') || n.includes('TAP') || n.includes('G94')) {
       side = 'Face';
     }
     return { op, side };
   } else {
     let op = 'Drilling';
     if (n.includes('TAP')) op = 'Tapping';
-    else if (n.includes('BOR') || n.includes('REAM')) op = 'Boring & Reaming';
-    else if (n.includes('MILL') || n.includes('POCKET') || n.includes('SPIGOT') || n.includes('SLOT')) op = 'Milling & Pocket';
+    else if (n.includes('REAM')) op = 'Reaming';
+    else if (n.includes('BOR')) op = 'Boring';
+    else if (n.includes('SPIGOT')) op = 'Spigot Milling';
+    else if (n.includes('POCKET')) op = 'Pocket Milling';
+    else if (n.includes('SLOT')) op = 'Slot Milling';
+    else if (n.includes('MILL')) op = 'Face Milling';
 
     let side = 'Standard';
     if (n.includes('CIRCULAR POCKET')) side = 'Circular Pocket';
@@ -436,8 +443,11 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   }, [domainKey, controller]);
 
   const operationOptions = useMemo(() => {
-    return [...new Set(enrichedTemplates.map((t) => t.op))];
-  }, [enrichedTemplates]);
+    if (domainKey === 'Turning') {
+      return ['Turning', 'Facing', 'Boring', 'Threading', 'Grooving', 'Parting', 'Drilling', 'Tapping'];
+    }
+    return ['Pocket Milling', 'Spigot Milling', 'Slot Milling', 'Face Milling', 'Drilling', 'Tapping', 'Boring', 'Reaming'];
+  }, [domainKey]);
 
   useEffect(() => {
     if (!operationOptions.includes(operation) && operationOptions.length > 0) {
@@ -446,10 +456,15 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   }, [operationOptions, operation]);
 
   const sideOptions = useMemo(() => {
+    if (domainKey === 'Turning') {
+      return ['OD', 'ID', 'Face'];
+    }
+    if (operation === 'Pocket Milling') return ['Circular Pocket', 'Rectangular Pocket'];
+    if (operation === 'Spigot Milling') return ['Circular Spigot', 'Rectangular Spigot'];
     const filteredByOp = enrichedTemplates.filter((t) => t.op === operation);
     const sides = [...new Set(filteredByOp.map((t) => t.side))];
-    return sides.length > 0 ? sides : ['OD'];
-  }, [enrichedTemplates, operation]);
+    return sides.length > 0 ? sides : ['Standard'];
+  }, [domainKey, enrichedTemplates, operation]);
 
   useEffect(() => {
     if (!sideOptions.includes(workSide) && sideOptions.length > 0) {
@@ -970,4 +985,5 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
+
 
