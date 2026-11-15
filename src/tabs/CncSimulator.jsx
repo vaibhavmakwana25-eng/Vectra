@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Play, Pause, RotateCcw, Box, ZoomIn, ZoomOut, Scissors } from 'lucide-react';
 
-function buildStepMoves(code, domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
+function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
   const tName = (templateName + ' ' + workSide).toUpperCase();
   const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
@@ -27,16 +27,17 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
         ? Math.max(3, Number(mfgCfg.tapDia || 10) - Number(mfgCfg.tapPitch || 1.5))
         : Number(mfgCfg.drillDia || 16);
       const peck = Math.max(4, Number(mfgCfg.peckDepth || 10));
-      moves.push({ x: 0, y: 0, z: 5, rapid: true, passType: 'rapid', curOD: rawOD, curID: 0, cutZ: 0, gcode: `G00 X0.0 Z5.0 (SPINDLE M03 ON)` });
+      let maxDrilledZ = 0;
+      moves.push({ x: 0, y: 0, z: 5, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: 0, curID: 0, passZ: 0, prevPassZ: 0, gcode: `G00 X0.0 Z5.0 (${operation} Ø${drillDia.toFixed(1)})` });
       for (let d = -peck; d >= -Math.min(45, partLen); d -= peck) {
-        const subSteps = 3;
-        for (let s = 1; s <= subSteps; s++) {
-          const zNow = (d * s) / subSteps;
-          moves.push({ x: 0, y: 0, z: zNow, rapid: false, passType: 'rough', curOD: rawOD, curID: drillDia, cutZ: Math.abs(zNow), gcode: `G01 Z${zNow.toFixed(1)} F0.12 (${operation.toUpperCase()} Ø${drillDia.toFixed(1)})` });
+        for (let s = 1; s <= 3; s++) {
+          const zNow = Math.abs((d * s) / 3);
+          maxDrilledZ = Math.max(maxDrilledZ, zNow);
+          moves.push({ x: 0, y: 0, z: -zNow, rapid: false, passType: 'rough', prevOD: rawOD, curOD: rawOD, prevID: drillDia, curID: drillDia, passZ: maxDrilledZ, prevPassZ: maxDrilledZ, gcode: `G01 Z-${zNow.toFixed(1)} F0.12` });
         }
-        moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: rawOD, curID: drillDia, cutZ: Math.abs(d), gcode: `G00 Z4.0 (PECK CHIP BREAK)` });
+        moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: drillDia, curID: drillDia, passZ: maxDrilledZ, prevPassZ: maxDrilledZ, gcode: `G00 Z4.0 (PECK RETRACT)` });
       }
-      moves.push({ x: 0, y: 0, z: 18, rapid: true, passType: 'rapid', curOD: rawOD, curID: drillDia, cutZ: Math.min(45, partLen), gcode: `G28 U0. W0. M05` });
+      moves.push({ x: 0, y: 0, z: 18, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: drillDia, curID: drillDia, passZ: maxDrilledZ, prevPassZ: maxDrilledZ, gcode: `G28 U0. W0. M05` });
     } else if (operation === 'Threading') {
       const majDia = Number(mfgCfg.threadMajorDia || 24);
       const minDia = Number(mfgCfg.threadMinorDia || 20.32);
@@ -48,101 +49,109 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
         const px = isID
           ? minDia + (majDia - minDia) * ratio
           : majDia - (majDia - minDia) * ratio;
-        moves.push({ x: safeX, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: baseOD, curID: isID ? minDia : 0, cutZ: 0, gcode: `G00 X${safeX.toFixed(1)} Z4.0 (PASS ${idx + 1}/4)` });
-        moves.push({ x: px, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: baseOD, curID: isID ? minDia : 0, cutZ: 0, gcode: `G00 X${px.toFixed(3)}` });
-        for (let s = 1; s <= 5; s++) {
-          const zStep = -(targetLen * s) / 5;
-          moves.push({ x: px, y: 0, z: zStep, rapid: false, passType: idx === 3 ? 'finish' : 'rough', curOD: baseOD, curID: isID ? minDia : 0, cutZ: Math.abs(zStep), gcode: `G76 X${px.toFixed(3)} Z${zStep.toFixed(1)} F${mfgCfg.threadPitch || 3.0}` });
+        moves.push({ x: safeX, y: 0, z: 4, rapid: true, passType: 'rapid', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G00 X${safeX.toFixed(1)} Z4.0 (THREAD PASS ${idx + 1}/4)` });
+        moves.push({ x: px, y: 0, z: 4, rapid: true, passType: 'rapid', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G00 X${px.toFixed(3)}` });
+        for (let s = 1; s <= 4; s++) {
+          const zStep = -(targetLen * s) / 4;
+          moves.push({ x: px, y: 0, z: zStep, rapid: false, passType: idx === 3 ? 'finish' : 'rough', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G76 X${px.toFixed(3)} Z${zStep.toFixed(1)} F${mfgCfg.threadPitch || 3.0}` });
         }
-        moves.push({ x: safeX, y: 0, z: -targetLen, rapid: true, passType: 'rapid', curOD: baseOD, curID: isID ? minDia : 0, cutZ: targetLen, gcode: `G00 X${safeX.toFixed(1)} (RETRACT)` });
+        moves.push({ x: safeX, y: 0, z: -targetLen, rapid: true, passType: 'rapid', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G00 X${safeX.toFixed(1)} (RETRACT)` });
       });
-      moves.push({ x: safeX, y: 0, z: 16, rapid: true, passType: 'rapid', curOD: baseOD, curID: isID ? minDia : 0, cutZ: targetLen, gcode: `G28 U0. W0. M05` });
+      moves.push({ x: safeX, y: 0, z: 16, rapid: true, passType: 'rapid', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G28 U0. W0. M05` });
     } else if (isFace) {
       [-0.8, -1.6, -2.4].forEach((fz, idx) => {
-        moves.push({ x: rawOD + 3, y: 0, z: fz, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: Math.abs(fz), gcode: `G00 X${(rawOD + 3).toFixed(1)} Z${fz}` });
+        moves.push({ x: rawOD + 3, y: 0, z: fz, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: Math.abs(fz), prevPassZ: Math.abs(fz), gcode: `G00 X${(rawOD + 3).toFixed(1)} Z${fz}` });
         for (let s = 1; s <= 4; s++) {
           const xStep = rawOD - ((rawOD - (isID ? rawID : 0)) * s) / 4;
-          moves.push({ x: xStep, y: 0, z: fz, rapid: false, passType: idx === 2 ? 'finish' : 'rough', curOD: rawOD, curID: isID ? rawID : 0, cutZ: Math.abs(fz), gcode: `G01 X${xStep.toFixed(1)} Z${fz} F0.15` });
+          moves.push({ x: xStep, y: 0, z: fz, rapid: false, passType: idx === 2 ? 'finish' : 'rough', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: Math.abs(fz), prevPassZ: Math.abs(fz), gcode: `G01 X${xStep.toFixed(1)} Z${fz} F0.15` });
         }
-        moves.push({ x: rawOD + 3, y: 0, z: fz + 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: Math.abs(fz), gcode: `G00 X${(rawOD + 3).toFixed(1)} Z${(fz + 2).toFixed(1)}` });
+        moves.push({ x: rawOD + 3, y: 0, z: fz + 2, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: Math.abs(fz), prevPassZ: Math.abs(fz), gcode: `G00 RETRACT` });
       });
-      moves.push({ x: rawOD + 8, y: 0, z: 16, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 2.4, gcode: `G28 U0. W0. M05` });
+      moves.push({ x: rawOD + 8, y: 0, z: 16, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: 2.4, prevPassZ: 2.4, gcode: `G28 U0. W0. M05` });
     } else if (operation === 'Grooving' || operation === 'Parting') {
       const cutZ = -Math.min(28, partLen - 5);
       const targetX = operation === 'Parting' ? 0 : isID ? finOD + 6 : Math.max(12, finOD - 6);
       const startX = isID ? finOD - 4 : rawOD + 2;
-      moves.push({ x: startX, y: 0, z: cutZ, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 0, gcode: `G00 X${startX.toFixed(1)} Z${cutZ}` });
+      moves.push({ x: startX, y: 0, z: cutZ, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: 0, prevPassZ: 0, gcode: `G00 X${startX.toFixed(1)} Z${cutZ}` });
       for (let s = 1; s <= 5; s++) {
         const curX = startX + ((targetX - startX) * s) / 5;
-        moves.push({ x: curX, y: 0, z: cutZ, rapid: false, passType: 'rough', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 4, gcode: `G01 X${curX.toFixed(1)} F0.08 (${operation.toUpperCase()})` });
+        moves.push({ x: curX, y: 0, z: cutZ, rapid: false, passType: 'rough', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: 0, prevPassZ: 0, gcode: `G01 X${curX.toFixed(1)} F0.08` });
       }
-      moves.push({ x: startX, y: 0, z: cutZ, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 4, gcode: `G00 X${startX.toFixed(1)}` });
-      moves.push({ x: startX + 4, y: 0, z: 16, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 4, gcode: `G28 U0. W0. M05` });
+      moves.push({ x: startX + 4, y: 0, z: 16, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: 0, prevPassZ: 0, gcode: `G28 U0. W0. M05` });
     } else if (isID) {
-      let activeID = Math.max(10, rawID);
+      // ID BORING: Never refills previous cut! Keeps prevID at prevPassZ while cutting new curID up to passZ
+      let completedID = Math.max(10, rawID);
+      let completedZ = 0;
       const targetZ = Math.max(10, partLen - lenStock);
+
       if (stage.includes('Rough')) {
-        const totalStock = Math.max(2, finOD - diaStock - activeID);
+        const totalStock = Math.max(2, finOD - diaStock - completedID);
         const passes = 3;
         const step = totalStock / passes;
         for (let p = 1; p <= passes; p++) {
-          const px = activeID + step * p;
-          moves.push({ x: rawID - 2, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: px - step, cutZ: 0, gcode: `G00 X${(rawID - 2).toFixed(1)} Z2.0 (PASS ${p})` });
-          moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: px - step, cutZ: 0, gcode: `G00 X${px.toFixed(2)}` });
+          const nextID = completedID + step;
+          moves.push({ x: rawID - 2, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${(rawID - 2).toFixed(1)} Z2.0 (ID PASS ${p})` });
+          moves.push({ x: nextID, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${nextID.toFixed(2)}` });
           for (let s = 1; s <= 5; s++) {
             const zProg = (targetZ * s) / 5;
-            moves.push({ x: px, y: 0, z: -zProg, rapid: false, passType: 'rough', curOD: rawOD, curID: px, cutZ: zProg, gcode: `G01 X${px.toFixed(2)} Z-${zProg.toFixed(1)} F0.22` });
+            moves.push({ x: nextID, y: 0, z: -zProg, rapid: false, passType: 'rough', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: nextID, passZ: zProg, prevPassZ: completedZ, gcode: `G01 X${nextID.toFixed(2)} Z-${zProg.toFixed(1)} F0.22` });
           }
-          moves.push({ x: rawID - 2, y: 0, z: -targetZ, rapid: true, passType: 'rapid', curOD: rawOD, curID: px, cutZ: targetZ, gcode: `G00 X${(rawID - 2).toFixed(1)} (RETRACT)` });
+          completedID = nextID;
+          completedZ = targetZ;
+          moves.push({ x: rawID - 2, y: 0, z: -targetZ, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: completedZ, prevPassZ: completedZ, gcode: `G00 X${(rawID - 2).toFixed(1)} (RETRACT)` });
         }
-        activeID = finOD - diaStock;
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
-        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: 0, gcode: `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)` });
+        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)` });
         for (let s = 1; s <= 5; s++) {
           const zProg = (partLen * s) / 5;
-          moves.push({ x: finOD, y: 0, z: -zProg, rapid: false, passType: 'finish', curOD: rawOD, curID: finOD, cutZ: zProg, gcode: `G41 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12` });
+          moves.push({ x: finOD, y: 0, z: -zProg, rapid: false, passType: 'finish', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: finOD, passZ: zProg, prevPassZ: completedZ, gcode: `G41 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12` });
         }
-        activeID = finOD;
+        completedID = finOD;
+        completedZ = partLen;
       }
       if (stage.includes('Chamfer')) {
-        moves.push({ x: finOD + chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: partLen, gcode: `G00 X${(finOD + chamfSize * 2).toFixed(1)} Z1.0` });
-        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', curOD: rawOD, curID: activeID, cutZ: partLen, gcode: `G01 X${finOD.toFixed(1)} Z-${chamfSize} F0.10` });
+        moves.push({ x: finOD + chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: completedZ, prevPassZ: completedZ, gcode: `G00 X${(finOD + chamfSize * 2).toFixed(1)} Z1.0` });
+        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: completedZ, prevPassZ: completedZ, gcode: `G01 X${finOD.toFixed(1)} Z-${chamfSize} F0.10` });
       }
-      moves.push({ x: rawID - 2, y: 0, z: 18, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: partLen, gcode: `G40 G28 U0. W0. M05` });
+      moves.push({ x: rawID - 2, y: 0, z: 18, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: completedZ, prevPassZ: completedZ, gcode: `G40 G28 U0. W0. M05` });
     } else {
-      // OD TURNING (Progressive step-by-step Z cutting)
-      let activeOD = rawOD;
+      // OD TURNING: Never refills previous cut! Keeps prevOD up to prevPassZ while cutting new smaller curOD up to passZ!
+      let completedOD = rawOD;
+      let completedZ = 0;
       const targetZ = Math.max(10, partLen - lenStock);
+
       if (stage.includes('Rough')) {
         const totalStock = Math.max(2, rawOD - (finOD + diaStock));
         const passes = 3;
         const step = totalStock / passes;
         for (let p = 1; p <= passes; p++) {
-          const px = rawOD - step * p;
-          moves.push({ x: activeOD + 3, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: 0, gcode: `G00 X${(activeOD + 3).toFixed(1)} Z2.0 (ROUGH PASS ${p})` });
-          moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: 0, gcode: `G00 X${px.toFixed(2)}` });
+          const nextOD = completedOD - step;
+          moves.push({ x: completedOD + 3, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${(completedOD + 3).toFixed(1)} Z2.0 (ROUGH PASS ${p})` });
+          moves.push({ x: nextOD, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${nextOD.toFixed(2)}` });
           for (let s = 1; s <= 5; s++) {
             const zProg = (targetZ * s) / 5;
-            moves.push({ x: px, y: 0, z: -zProg, rapid: false, passType: 'rough', curOD: px, curID: 0, cutZ: zProg, gcode: `G01 X${px.toFixed(2)} Z-${zProg.toFixed(1)} F0.25` });
+            moves.push({ x: nextOD, y: 0, z: -zProg, rapid: false, passType: 'rough', prevOD: completedOD, curOD: nextOD, prevID: 0, curID: 0, passZ: zProg, prevPassZ: completedZ, gcode: `G01 X${nextOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.25` });
           }
-          activeOD = px;
-          moves.push({ x: px + 3, y: 0, z: -targetZ + 1, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: targetZ, gcode: `G00 X${(px + 3).toFixed(1)} (RETRACT)` });
+          completedOD = nextOD;
+          completedZ = targetZ;
+          moves.push({ x: completedOD + 3, y: 0, z: -targetZ + 1, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: completedZ, prevPassZ: completedZ, gcode: `G00 X${(completedOD + 3).toFixed(1)} (RETRACT)` });
         }
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
-        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: 0, gcode: `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)` });
+        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)` });
         for (let s = 1; s <= 5; s++) {
           const zProg = (partLen * s) / 5;
-          moves.push({ x: finOD, y: 0, z: -zProg, rapid: false, passType: 'finish', curOD: finOD, curID: 0, cutZ: zProg, gcode: `G42 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12` });
+          moves.push({ x: finOD, y: 0, z: -zProg, rapid: false, passType: 'finish', prevOD: completedOD, curOD: finOD, prevID: 0, curID: 0, passZ: zProg, prevPassZ: completedZ, gcode: `G42 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12` });
         }
-        activeOD = finOD;
+        completedOD = finOD;
+        completedZ = partLen;
       }
       if (stage.includes('Chamfer')) {
-        moves.push({ x: finOD - chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: partLen, gcode: `G00 X${(finOD - chamfSize * 2).toFixed(1)} Z1.0` });
-        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', curOD: activeOD, curID: 0, cutZ: partLen, gcode: `G01 X${finOD.toFixed(1)} Z-${chamfSize} F0.10` });
+        moves.push({ x: finOD - chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: completedZ, prevPassZ: completedZ, gcode: `G00 X${(finOD - chamfSize * 2).toFixed(1)} Z1.0` });
+        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: completedZ, prevPassZ: completedZ, gcode: `G01 X${finOD.toFixed(1)} Z-${chamfSize} F0.10` });
       }
-      moves.push({ x: rawOD + 8, y: 0, z: 18, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: partLen, gcode: `G40 G28 U0. W0. M05` });
+      moves.push({ x: rawOD + 8, y: 0, z: 18, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: completedZ, prevPassZ: completedZ, gcode: `G40 G28 U0. W0. M05` });
     }
   } else {
     const isCircPocket = tName.includes('CIRCULAR POCKET') || operation === 'Pocket Milling';
@@ -245,7 +254,7 @@ function buildStepMoves(code, domainKey, workSide, operation, templateName = '',
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
 
-export default function CncSimulator({ code, domainKey, machineType, workSide, operation, templateName = '', mfgCfg = {} }) {
+export default function CncSimulator({ domainKey, machineType, workSide, operation, templateName = '', mfgCfg = {} }) {
   const [playing, setPlaying] = useState(true);
   const [stepIdx, setStepIdx] = useState(0);
   const [speed, setSpeed] = useState(1);
@@ -269,8 +278,8 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
   const isVTL = machineType === 'VTL';
 
   const moves = useMemo(
-    () => buildStepMoves(code, domainKey, workSide, operation, templateName, mfgCfg),
-    [code, domainKey, workSide, operation, templateName, mfgCfg]
+    () => buildStepMoves(domainKey, workSide, operation, templateName, mfgCfg),
+    [domainKey, workSide, operation, templateName, mfgCfg]
   );
 
   useEffect(() => {
@@ -282,23 +291,23 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     if (!playing || moves.length === 0) return;
     const timer = setInterval(() => {
       setStepIdx((prev) => (prev + 1 >= moves.length ? 0 : prev + 1));
-    }, Math.max(90, Math.round(480 / speed)));
+    }, Math.max(95, Math.round(520 / speed)));
     return () => clearInterval(timer);
   }, [playing, moves, speed]);
 
-  // Initialize Clean LIGHT STUDIO WebGL 3D Engine
+  // Initialize Balanced Steel-Grey Studio WebGL 3D Engine
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
     const width = container.clientWidth || 400;
-    const height = 370;
+    const height = 380;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#e2e8f0'); // Clean Light CAD Studio Background
+    scene.background = new THREE.Color('#64748b'); // Balanced Medium Steel-Grey CAD Studio Background (Not blinding white!)
 
-    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 1000);
-    camera.position.set(125, 92, 138);
+    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
+    camera.position.set(155, 115, 175); // Framed wider so FULL Jyoti Turret + Chuck + Job are always visible!
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -312,22 +321,23 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
+    controls.target.set(8, 12, 0);
     controlsRef.current = controls;
 
-    // Bright CAD Studio Three-Point Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    // Crisp Studio Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
-    keyLight.position.set(140, 200, 160);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.35);
+    keyLight.position.set(160, 220, 180);
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xbae6fd, 0.7);
-    fillLight.position.set(-140, 60, -120);
+    const fillLight = new THREE.DirectionalLight(0xe0f2fe, 0.75);
+    fillLight.position.set(-150, 80, -140);
     scene.add(fillLight);
 
-    // Light Studio Reference Floor Grid
-    const grid = new THREE.GridHelper(240, 24, 0x94a3b8, 0xcbd5e1);
+    // Subtle Machine Bed Grid
+    const grid = new THREE.GridHelper(260, 26, 0x334155, 0x475569);
     grid.position.y = -48;
     scene.add(grid);
 
@@ -338,9 +348,8 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     let animId;
     const animate = () => {
       animId = requestAnimationFrame(animate);
-      // Continuous Live RPM Rotation of Chuck & Workpiece when Playing!
       if (playingRef.current && spindleGroupRef.current) {
-        spindleGroupRef.current.rotation.y += 0.14 * speedRef.current;
+        spindleGroupRef.current.rotation.y += 0.15 * speedRef.current;
       }
       controls.update();
       renderer.render(scene, camera);
@@ -368,11 +377,11 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     const cam = cameraRef.current;
     const ctrl = controlsRef.current;
     if (!cam || !ctrl) return;
-    ctrl.target.set(0, 0, 0);
-    if (view === 'iso') cam.position.set(125, 92, 138);
-    else if (view === 'top') cam.position.set(0, 195, 0.1);
-    else if (view === 'front') cam.position.set(0, 12, 195);
-    else if (view === 'side') cam.position.set(195, 12, 0);
+    ctrl.target.set(8, 12, 0);
+    if (view === 'iso') cam.position.set(155, 115, 175);
+    else if (view === 'top') cam.position.set(8, 230, 0.1);
+    else if (view === 'front') cam.position.set(8, 15, 225);
+    else if (view === 'side') cam.position.set(225, 15, 0);
     ctrl.update();
   };
 
@@ -381,7 +390,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     if (cam) cam.position.multiplyScalar(factor);
   };
 
-  // Build 3D Chuck, Workpiece, Jyoti Turret & Operation-Specific Insert
+  // Build True Stepped Solid Geometry (LatheGeometry) + Full Visible Jyoti Turret
   useEffect(() => {
     const group = dynamicGroupRef.current;
     if (!group) return;
@@ -397,38 +406,32 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     const tName = (templateName + ' ' + workSide).toUpperCase();
     const planes = halfCut ? [clipPlaneRef.current] : [];
 
-    // High-Contrast Metallic Materials for Light CAD Studio Theme
     const chuckMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      metalness: 0.78,
+      color: 0x0f172a,
+      metalness: 0.8,
       roughness: 0.28,
       clippingPlanes: planes,
       side: THREE.DoubleSide
     });
     const jawMat = new THREE.MeshStandardMaterial({
-      color: 0x334155,
+      color: 0xcbd5e1,
       metalness: 0.85,
       roughness: 0.22,
       clippingPlanes: planes
     });
     const rawStockMat = new THREE.MeshStandardMaterial({
-      color: 0x64748b,
+      color: 0x334155,
       metalness: 0.65,
-      roughness: 0.32,
+      roughness: 0.35,
       clippingPlanes: planes,
       side: THREE.DoubleSide
     });
     const machinedMat = new THREE.MeshStandardMaterial({
-      color: 0x0284c7,
-      metalness: 0.55,
-      roughness: 0.18,
-      clippingPlanes: planes,
-      side: THREE.DoubleSide
-    });
-    const boreMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
-      metalness: 0.4,
-      roughness: 0.4,
+      color: 0x0ea5e9,
+      emissive: 0x0369a1,
+      emissiveIntensity: 0.25,
+      metalness: 0.6,
+      roughness: 0.16,
       clippingPlanes: planes,
       side: THREE.DoubleSide
     });
@@ -436,72 +439,87 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     if (domainKey === 'Turning') {
       const rawOD = Number(mfgCfg.stockX || 50);
       const partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
-      const stickout = Math.min(72, Math.max(38, Number(mfgCfg.chuckStickout || 65) * 0.85));
-      const activeOD = current.curOD ?? rawOD;
-      const activeID = current.curID ?? (workSide === 'ID' ? Number(mfgCfg.rawIdDia || 20) : 0);
-      const cutRatio = Math.min(1, Math.max(0, (current.cutZ || 0) / partLen));
-      const cutLen = cutRatio * (stickout * 0.85);
-      const uncutLen = Math.max(0.5, stickout - cutLen);
+      const stickout = Math.min(72, Math.max(42, Number(mfgCfg.chuckStickout || 65) * 0.85));
 
-      const rawRad = 27;
-      const machRad = Math.max(7, (activeOD / Math.max(10, rawOD)) * rawRad);
-      const boreRad = activeID > 0 ? Math.min(machRad - 2, Math.max(4, (activeID / Math.max(10, rawOD)) * rawRad)) : 0;
+      const rawRad = 26;
+      const toRad = (dia) => Math.max(4, (dia / Math.max(10, rawOD)) * rawRad);
+      const toLen = (zVal) => Math.min(stickout * 0.88, Math.max(0, (zVal / partLen) * (stickout * 0.88)));
 
-      // Orientation Wrapper: Horizontal Lathe (-X Chuck -> +X Face) vs VTL (-Y Table -> +Y Face)
+      const prevODRad = toRad(current.prevOD ?? rawOD);
+      const curODRad = toRad(current.curOD ?? rawOD);
+      const passLen = toLen(current.passZ || 0);
+      const prevPassLen = toLen(current.prevPassZ || 0);
+
+      const prevIDRad = (current.prevID || 0) > 0 ? Math.min(curODRad - 2, toRad(current.prevID)) : 0;
+      const curIDRad = (current.curID || 0) > 0 ? Math.min(curODRad - 2, toRad(current.curID)) : 0;
+
       const orientGroup = new THREE.Group();
       if (!isVTL) {
         orientGroup.rotation.z = -Math.PI / 2;
       }
 
-      // Rotating Spindle Group (Chuck + Jaws + Workpiece spin together with RPM!)
       const spindleGroup = new THREE.Group();
       spindleGroupRef.current = spindleGroup;
 
-      // 1. Heavy 3-Jaw Chuck Body
-      const chuckGeo = new THREE.CylinderGeometry(rawRad + 12, rawRad + 12, 22, 48);
-      const chuckMesh = new THREE.Mesh(chuckGeo, chuckMat);
+      // 1. 3-Jaw Chuck Body + High-Contrast Steel Jaws
+      const chuckMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad + 12, rawRad + 12, 22, 48), chuckMat);
       chuckMesh.position.y = -stickout / 2 - 11;
       spindleGroup.add(chuckMesh);
 
-      // 3 Chuck Jaws (Makes RPM rotation unmistakably visible!)
       for (let j = 0; j < 3; j++) {
         const ang = (j * Math.PI * 2) / 3;
-        const jawGeo = new THREE.BoxGeometry(9, 13, 14);
-        const jawMesh = new THREE.Mesh(jawGeo, jawMat);
-        jawMesh.position.set(Math.cos(ang) * (rawRad + 3), -stickout / 2 + 4.5, Math.sin(ang) * (rawRad + 3));
+        const jawMesh = new THREE.Mesh(new THREE.BoxGeometry(9, 14, 13), jawMat);
+        jawMesh.position.set(Math.cos(ang) * (rawRad + 3.5), -stickout / 2 + 5, Math.sin(ang) * (rawRad + 3.5));
         jawMesh.rotation.y = -ang;
         spindleGroup.add(jawMesh);
       }
 
-      // 2. Uncut Raw Stock Portion
-      const rawGeo = new THREE.CylinderGeometry(rawRad, rawRad, uncutLen, 48);
-      const rawMesh = new THREE.Mesh(rawGeo, rawStockMat);
-      rawMesh.position.y = -stickout / 2 + uncutLen / 2;
+      // 2. TRUE STEPPED WORKPIECE REVOLUTION (Never refills previous cut!)
+      // Y goes from -stickout/2 (Chuck Face) to +stickout/2 (Job Free Face)
+      const yChuck = -stickout / 2;
+      const yFace = stickout / 2;
+      const yPrevStep = yFace - prevPassLen;
+      const yCurStep = yFace - passLen;
+
+      // Uncut Raw Stock (from yChuck up to min(yPrevStep, yCurStep))
+      const yUncutTop = Math.min(yPrevStep, yCurStep);
+      const uncutH = Math.max(0.5, yUncutTop - yChuck);
+      const rawMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad, rawRad, uncutH, 48), rawStockMat);
+      rawMesh.position.y = yChuck + uncutH / 2;
       spindleGroup.add(rawMesh);
 
-      // 3. Machined Reduced OD Portion (Stepped Bright Blue Metallic Finish)
-      if (cutLen > 0.3) {
-        const machGeo = new THREE.CylinderGeometry(machRad, machRad, cutLen, 48);
-        const machMesh = new THREE.Mesh(machGeo, machinedMat);
-        machMesh.position.y = stickout / 2 - cutLen / 2;
-        spindleGroup.add(machMesh);
+      // Previously Machined Step (between yCurStep and yPrevStep, stays permanently cut!)
+      if (yPrevStep > yCurStep + 0.2) {
+        const prevH = yPrevStep - yCurStep;
+        const prevStepMesh = new THREE.Mesh(new THREE.CylinderGeometry(prevODRad, prevODRad, prevH, 48), machinedMat);
+        prevStepMesh.position.y = yCurStep + prevH / 2;
+        spindleGroup.add(prevStepMesh);
       }
 
-      // 4. Inner Bore Cavity
-      if (boreRad > 1) {
-        const boreDepth = Math.max(6, cutLen);
-        const boreGeo = new THREE.CylinderGeometry(boreRad, boreRad, boreDepth + 0.4, 36);
-        const boreMesh = new THREE.Mesh(boreGeo, boreMat);
-        boreMesh.position.y = stickout / 2 - boreDepth / 2 + 0.2;
+      // Currently Cutting Step (from yCurStep up to yFace)
+      if (passLen > 0.2) {
+        const curH = passLen;
+        const curStepMesh = new THREE.Mesh(new THREE.CylinderGeometry(curODRad, curODRad, curH, 48), machinedMat);
+        curStepMesh.position.y = yFace - curH / 2;
+        spindleGroup.add(curStepMesh);
+      }
+
+      // Stepped ID Bore (if ID operation)
+      if (curIDRad > 0.5 && passLen > 0.2) {
+        const boreMesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(curIDRad, curIDRad, passLen + 0.5, 36),
+          new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5, clippingPlanes: planes })
+        );
+        boreMesh.position.y = yFace - passLen / 2 + 0.2;
         spindleGroup.add(boreMesh);
       }
 
       orientGroup.add(spindleGroup);
       group.add(orientGroup);
 
-      // Map Tool Tip Position in 3D
+      // Map Tool Tip Position
       const mapTurnVec = (pt) => {
-        const zNorm = ((pt.z || 0) / partLen) * (stickout * 0.85);
+        const zNorm = ((pt.z || 0) / partLen) * (stickout * 0.88);
         const rad = ((pt.x || 0) / Math.max(10, rawOD)) * rawRad;
         if (isVTL) {
           return new THREE.Vector3(rad, stickout / 2 + zNorm, 0);
@@ -509,23 +527,22 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
         return new THREE.Vector3(stickout / 2 + zNorm, rad, 0);
       };
 
-      // Toolpath Trajectory Lines
+      // Toolpath Lines
       for (let i = 1; i < history.length; i++) {
         const p1 = mapTurnVec(history[i - 1]);
         const p2 = mapTurnVec(history[i]);
-        const col = history[i].rapid ? 0xe11d48 : history[i].passType === 'finish' ? 0x0284c7 : 0x059669;
-        const lineGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
-        group.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: col })));
+        const col = history[i].rapid ? 0xf43f5e : history[i].passType === 'finish' ? 0x38bdf8 : 0x10b981;
+        group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: col })));
       }
 
-      // JYOTI CNC TURRET + PROPER TOOL ORIENTATION + OPERATION-SPECIFIC INSERT
+      // FULL VISIBLE JYOTI 8-STATION BMT TURRET + TOOL HOLDER + INSERT
       const tip = mapTurnVec(current);
       const turretAssembly = new THREE.Group();
 
-      const turretBodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.75, roughness: 0.3 });
-      const jyotiCyanMat = new THREE.MeshStandardMaterial({ color: 0x0891b2, metalness: 0.5, roughness: 0.25 });
-      const holderMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.82, roughness: 0.25 });
-      const goldInsertMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0x92400e, metalness: 0.65, roughness: 0.18 });
+      const turretDarkMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.75, roughness: 0.28 });
+      const jyotiCyanMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, emissive: 0x0891b2, emissiveIntensity: 0.25, metalness: 0.5, roughness: 0.2 });
+      const holderMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.85, roughness: 0.22 });
+      const goldInsertMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xb45309, emissiveIntensity: 0.35, metalness: 0.65, roughness: 0.18 });
 
       const isFacingOp = operation === 'Facing' || workSide === 'Face';
       const isBoringOp = workSide === 'ID' || operation === 'Boring';
@@ -533,91 +550,92 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
 
       if (isVTL) {
         if (isFacingOp) {
-          // VTL Horizontal Facing Arm coming from right side
-          const shank = new THREE.Mesh(new THREE.BoxGeometry(36, 7, 7), holderMat);
-          shank.position.set(18, 0, 0);
+          // VTL Horizontal Facing Arm + Jyoti Octagonal Turret
+          const shank = new THREE.Mesh(new THREE.BoxGeometry(30, 6.5, 6.5), holderMat);
+          shank.position.set(15, 0, 0);
           turretAssembly.add(shank);
 
-          const turretDrum = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, 18, 8), turretBodyMat);
+          const turretDrum = new THREE.Mesh(new THREE.CylinderGeometry(17, 17, 15, 8), turretDarkMat);
           turretDrum.rotation.x = Math.PI / 2;
-          turretDrum.position.set(42, 0, 0);
+          turretDrum.position.set(40, 0, 0);
           turretAssembly.add(turretDrum);
 
-          const accentRing = new THREE.Mesh(new THREE.CylinderGeometry(16.4, 16.4, 4, 8), jyotiCyanMat);
+          const accentRing = new THREE.Mesh(new THREE.CylinderGeometry(17.5, 17.5, 4.5, 8), jyotiCyanMat);
           accentRing.rotation.x = Math.PI / 2;
-          accentRing.position.set(42, 0, 0);
+          accentRing.position.set(40, 0, 0);
           turretAssembly.add(accentRing);
         } else {
-          // VTL Vertical Heavy Ram & Turret coming straight down from top (+Y)
-          const shank = new THREE.Mesh(new THREE.BoxGeometry(7, 36, 7), holderMat);
-          shank.position.set(0, 18, 0);
+          // VTL Vertical Ram + Jyoti Turret Head positioned clearly in frame
+          const shank = new THREE.Mesh(new THREE.BoxGeometry(6.5, 28, 6.5), holderMat);
+          shank.position.set(0, 14, 0);
           turretAssembly.add(shank);
 
-          const ramHead = new THREE.Mesh(new THREE.BoxGeometry(24, 26, 24), turretBodyMat);
-          ramHead.position.set(0, 48, 0);
-          turretAssembly.add(ramHead);
+          const turretDisc = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 16, 8), turretDarkMat);
+          turretDisc.rotation.x = Math.PI / 2;
+          turretDisc.position.set(8, 38, 0);
+          turretAssembly.add(turretDisc);
 
-          const jyotiBand = new THREE.Mesh(new THREE.BoxGeometry(25, 5, 25), jyotiCyanMat);
-          jyotiBand.position.set(0, 38, 0);
+          const jyotiBand = new THREE.Mesh(new THREE.CylinderGeometry(18.5, 18.5, 4.5, 8), jyotiCyanMat);
+          jyotiBand.rotation.x = Math.PI / 2;
+          jyotiBand.position.set(8, 38, 0);
           turretAssembly.add(jyotiBand);
         }
       } else {
-        // Horizontal Turning Lathe (Jyoti DX / AX / Tachyon):
         if (isBoringOp || isDrillOrTap) {
-          // Axial Boring Bar / Drill pointing horizontally into +X -> -X spindle
-          const bar = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 38, 20), holderMat);
+          // Horizontal Boring Bar / Drill + Jyoti 8-Station Octagonal Turret
+          const bar = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 30, 20), holderMat);
           bar.rotation.z = Math.PI / 2;
-          bar.position.set(19, 0, 0);
+          bar.position.set(15, 0, 0);
           turretAssembly.add(bar);
 
-          const turretOct = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 16, 8), turretBodyMat);
+          const turretOct = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 15, 8), turretDarkMat);
           turretOct.rotation.x = Math.PI / 2;
-          turretOct.position.set(46, 6, 0);
+          turretOct.position.set(42, 4, 0);
           turretAssembly.add(turretOct);
 
-          const jyotiBand = new THREE.Mesh(new THREE.CylinderGeometry(18.4, 18.4, 4, 8), jyotiCyanMat);
+          const jyotiBand = new THREE.Mesh(new THREE.CylinderGeometry(18.5, 18.5, 4.5, 8), jyotiCyanMat);
           jyotiBand.rotation.x = Math.PI / 2;
-          jyotiBand.position.set(46, 6, 0);
+          jyotiBand.position.set(42, 4, 0);
           turretAssembly.add(jyotiBand);
         } else {
-          // Radial Turning Tool Holder pointing vertically down onto OD (90 deg to spindle axis, NO slant!)
-          const shank = new THREE.Mesh(new THREE.BoxGeometry(7, 32, 7), holderMat);
-          shank.position.set(0, 16, 0);
+          // Horizontal Turning Tool Holder + Jyoti 8-Station Octagonal Turret directly above!
+          const shank = new THREE.Mesh(new THREE.BoxGeometry(6.5, 24, 6.5), holderMat);
+          shank.position.set(0, 12, 0);
           turretAssembly.add(shank);
 
-          // Jyoti Octagonal 8-Station BMT Turret Disc mounted above tool
-          const turretOct = new THREE.Mesh(new THREE.CylinderGeometry(19, 19, 16, 8), turretBodyMat);
+          const turretOct = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 15, 8), turretDarkMat);
           turretOct.rotation.x = Math.PI / 2;
-          turretOct.position.set(6, 44, 0);
+          turretOct.position.set(8, 34, 0);
           turretAssembly.add(turretOct);
 
-          const jyotiBand = new THREE.Mesh(new THREE.CylinderGeometry(19.4, 19.4, 4.5, 8), jyotiCyanMat);
+          const jyotiBand = new THREE.Mesh(new THREE.CylinderGeometry(18.5, 18.5, 4.5, 8), jyotiCyanMat);
           jyotiBand.rotation.x = Math.PI / 2;
-          jyotiBand.position.set(6, 44, 0);
+          jyotiBand.position.set(8, 34, 0);
           turretAssembly.add(jyotiBand);
+
+          // Dummy adjacent tool holders on turret stations for authentic Jyoti look
+          const dummyTool = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 5), holderMat);
+          dummyTool.position.set(28, 34, 0);
+          turretAssembly.add(dummyTool);
         }
       }
 
-      // Operation-Specific Insert Geometry at Tip (0,0,0)
+      // Operation-Specific Carbide Insert at Tip (0,0,0)
       if (operation === 'Threading') {
-        // 60-degree Sharp V-Thread Insert
         const vInsert = new THREE.Mesh(new THREE.ConeGeometry(3.8, 8, 3), goldInsertMat);
         vInsert.rotation.z = isVTL && isFacingOp ? Math.PI / 2 : Math.PI;
         vInsert.position.set(isVTL && isFacingOp ? 3 : 0, isVTL && isFacingOp ? 0 : 3, 0);
         turretAssembly.add(vInsert);
       } else if (operation === 'Grooving' || operation === 'Parting') {
-        // Thin Blade Grooving / Parting Insert
         const blade = new THREE.Mesh(new THREE.BoxGeometry(1.8, 9, 4.5), goldInsertMat);
         blade.position.set(0, 3.5, 0);
         turretAssembly.add(blade);
       } else if (isDrillOrTap) {
-        // Drill / Tap Tip Cone
         const drillTip = new THREE.Mesh(new THREE.ConeGeometry(3.5, 10, 16), goldInsertMat);
         drillTip.rotation.z = isVTL ? Math.PI : Math.PI / 2;
         drillTip.position.set(isVTL ? 0 : 4, isVTL ? 4 : 0, 0);
         turretAssembly.add(drillTip);
       } else {
-        // Standard CNMG / CCMT Diamond Carbide Insert
         const diamond = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.2, 2.2, 4), goldInsertMat);
         diamond.rotation.x = Math.PI / 2;
         diamond.position.set(0, 2, 0);
@@ -627,7 +645,6 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       turretAssembly.position.copy(tip);
       group.add(turretAssembly);
     } else {
-      // MILLING 3D SOLID WORKPIECE BLOCK
       spindleGroupRef.current = null;
       const blkW = Math.min(96, Number(mfgCfg.stockX || 100) * 0.85);
       const blkD = Math.min(76, Number(mfgCfg.stockY || 80) * 0.85);
@@ -665,7 +682,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       for (let i = 1; i < history.length; i++) {
         const p1 = mapMillVec(history[i - 1]);
         const p2 = mapMillVec(history[i]);
-        const col = history[i].rapid ? 0xe11d48 : history[i].passType === 'finish' ? 0x0284c7 : 0x059669;
+        const col = history[i].rapid ? 0xf43f5e : history[i].passType === 'finish' ? 0x38bdf8 : 0x10b981;
         group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: col })));
       }
 
@@ -701,7 +718,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Box className="w-4 h-4" />
-          <span>3D Jyoti CAD/CAM Simulator ({isVTL ? 'VTL' : domainKey})</span>
+          <span>3D Jyoti Turret & Solid Sim ({isVTL ? 'VTL' : domainKey})</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -754,24 +771,24 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
         </div>
       </div>
 
-      {/* LIGHT STUDIO THEME 3D VIEWPORT */}
-      <div className="my-2 bg-slate-200 border border-slate-400 rounded-xl overflow-hidden relative shadow-inner">
-        <div ref={mountRef} className="w-full h-[370px] cursor-grab active:cursor-grabbing" />
+      {/* MEDIUM STEEL-GREY STUDIO THEME 3D VIEWPORT */}
+      <div className="my-2 bg-slate-500 border border-slate-600 rounded-xl overflow-hidden relative shadow-inner">
+        <div ref={mountRef} className="w-full h-[380px] cursor-grab active:cursor-grabbing" />
 
-        <div className="absolute top-2 left-2.5 right-2.5 flex justify-between items-center text-[10px] font-mono bg-white/90 text-slate-800 px-2.5 py-1 rounded border border-slate-300 shadow-sm pointer-events-none">
+        <div className="absolute top-2 left-2.5 right-2.5 flex justify-between items-center text-[10px] font-mono bg-slate-900/85 text-slate-100 px-2.5 py-1 rounded border border-slate-700 pointer-events-none">
           <span className="font-bold">
             {domainKey === 'Turning'
               ? `Live OD: Ø${activeOD.toFixed(1)}mm ${activeID > 0 ? `| ID: Ø${activeID.toFixed(1)}mm` : ''} • RPM: ${playing ? 'ON' : 'STOP'}`
               : `Cut Depth: ${(current.cutDepth || 0).toFixed(1)} / ${mfgCfg.featureDepth || 10}mm`}
           </span>
-          <span className="text-sky-700 font-semibold">Drag: Rotate • Scroll: Zoom</span>
+          <span className="text-cyan-300">Drag: Rotate • Scroll: Zoom</span>
         </div>
 
-        <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-2.5 text-[10px] font-mono bg-white/90 text-slate-800 px-2.5 py-1 rounded-md border border-slate-300 shadow-sm pointer-events-none">
-          <span className="flex items-center gap-1 font-semibold"><span className="w-2.5 h-2.5 rounded-sm bg-slate-500"></span> Raw Stock</span>
-          <span className="flex items-center gap-1 font-semibold text-sky-700"><span className="w-2.5 h-2.5 rounded-sm bg-sky-600"></span> Machined</span>
-          <span className="flex items-center gap-1 font-semibold text-amber-700"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Insert</span>
-          <span className="flex items-center gap-1 font-semibold text-rose-600"><span className="w-2.5 h-0.5 bg-rose-600"></span> Rapid</span>
+        <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-2.5 text-[10px] font-mono bg-slate-900/85 text-slate-100 px-2.5 py-1 rounded-md border border-slate-700 pointer-events-none">
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-700 border border-slate-400"></span> Raw Stock</span>
+          <span className="flex items-center gap-1 text-sky-300"><span className="w-2.5 h-2.5 rounded-sm bg-sky-500"></span> Machined</span>
+          <span className="flex items-center gap-1 text-cyan-300"><span className="w-2.5 h-2.5 rounded-sm bg-cyan-500"></span> Jyoti Turret</span>
+          <span className="flex items-center gap-1 text-amber-300"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Insert</span>
         </div>
       </div>
 
