@@ -839,6 +839,210 @@ function buildUniversalControllerProgram({
   });
 }
 
+
+function generateIfGotoMacroFromTable({
+  domainKey = 'Turning',
+  machineType = 'CNC Lathe',
+  workSide = 'OD',
+  operation = 'OD Turning',
+  mfgCfg = {}
+}) {
+  const isTurn = domainKey === 'Turning' || machineType === 'VTL';
+  const isID = workSide === 'ID' || String(operation || '').toUpperCase().includes('ID');
+  const op = String(operation || '').toUpperCase();
+
+  const rawDia = Number(mfgCfg.stockX || 50);
+  const finDia = Number(mfgCfg.stockY || 32);
+  const lenZ = Math.max(5, Number(mfgCfg.stockZ || 45));
+  const rawIdDia = Number(mfgCfg.rawIdDia || 18);
+  const depthZ = Math.abs(Number(mfgCfg.featureDepth || 10));
+  const peckQ = Math.max(0.5, Number(mfgCfg.peckDepth || 4));
+  const stepDoc = Math.max(0.2, Number(mfgCfg.docStep || 1.5));
+  const finStock = Number(mfgCfg.diaFinishStock ?? 0.5);
+  const lenStock = Number(mfgCfg.lenFinishStock ?? 0.2);
+  const pitch = Number(mfgCfg.threadPitch || mfgCfg.tapPitch || 1.5);
+  const majDia = Number(mfgCfg.threadMajorDia || mfgCfg.tapDia || 24);
+  const minDia = Number(mfgCfg.threadMinorDia || Math.max(4, majDia - pitch * 1.25));
+  const rpm = Number(mfgCfg.spindleRpm || 1200);
+  const feed = Number(mfgCfg.feedRate || (isTurn ? 0.22 : 250));
+
+  const out = [
+    '%',
+    'O6001 (FANUC IF-GOTO MACRO - ' + op + ')',
+    '(GENERATED FROM DATA TABLE)',
+    'G21 G40 G80 G97 ' + (isTurn ? 'G99' : 'G94 G54 G90')
+  ];
+
+  if (isTurn) {
+    out.push('#101 = ' + rawDia.toFixed(3) + ' (RAW / START DIA)');
+    out.push('#102 = ' + finDia.toFixed(3) + ' (FINISH DIA)');
+    out.push('#103 = ' + lenZ.toFixed(3) + ' (TOTAL Z LENGTH)');
+    out.push('#104 = ' + stepDoc.toFixed(3) + ' (STEP / DOC)');
+    out.push('#105 = ' + finStock.toFixed(3) + ' (FINISH STOCK)');
+    out.push('T0101');
+    out.push('G96 S' + Math.min(450, Math.max(80, Math.round(rpm / 5))) + ' M03');
+
+    if (op.includes('THREAD')) {
+      const tZ = Math.min(lenZ - 2, 30);
+      out.push('#110 = ' + majDia.toFixed(3) + ' (MAJOR DIA)');
+      out.push('#111 = ' + minDia.toFixed(3) + ' (MINOR DIA)');
+      out.push('#112 = ' + pitch.toFixed(3) + ' (PITCH)');
+      out.push('#113 = 0.250 (THREAD INFEED)');
+      out.push('#114 = #110 (CURRENT DIA)');
+      out.push('G97 S' + Math.min(1500, rpm) + ' M03');
+      out.push('G00 X' + (majDia + 5).toFixed(2) + ' Z4.0');
+      out.push('N10');
+      out.push('#114 = #114 - #113');
+      out.push('IF [#114 GE #111] GOTO 20');
+      out.push('#114 = #111');
+      out.push('N20');
+      out.push('G00 X' + (majDia + 3).toFixed(2));
+      out.push('G32 X#114 Z-' + tZ.toFixed(2) + ' F#112');
+      out.push('G00 X' + (majDia + 5).toFixed(2));
+      out.push('Z4.0');
+      out.push('IF [#114 GT #111] GOTO 10');
+      out.push('GOTO 90');
+    } else if (op.includes('GROOVE') || op.includes('PART')) {
+      const gZ = -Math.min(lenZ - 3, 22);
+      const gTarget = op.includes('PART') ? 2.0 : (isID ? finDia + 4 : Math.max(6, finDia - 5));
+      out.push('#110 = ' + gZ.toFixed(2) + ' (GROOVE Z)');
+      out.push('#111 = ' + gTarget.toFixed(2) + ' (TARGET X)');
+      out.push('#112 = ' + peckQ.toFixed(2) + ' (PECK X)');
+      out.push('#113 = #101 (CURRENT X)');
+      out.push('G00 X' + (rawDia + 4).toFixed(2) + ' Z#110');
+      out.push('N10');
+      out.push('#113 = #113 - #112');
+      out.push('IF [#113 GE #111] GOTO 20');
+      out.push('#113 = #111');
+      out.push('N20');
+      out.push('G01 X#113 F' + (feed * 0.4).toFixed(3));
+      out.push('G00 X' + (rawDia + 4).toFixed(2));
+      out.push('IF [#113 GT #111] GOTO 10');
+      out.push('GOTO 90');
+    } else if (op.includes('FACE')) {
+      const fDepth = Math.min(8, Math.max(1, depthZ));
+      out.push('#110 = ' + peckQ.toFixed(2) + ' (FACE STEP Z)');
+      out.push('#111 = ' + fDepth.toFixed(2) + ' (TOTAL FACE Z)');
+      out.push('#112 = 0.0 (CURRENT Z)');
+      out.push('N10');
+      out.push('#112 = #112 + #110');
+      out.push('IF [#112 LE #111] GOTO 20');
+      out.push('#112 = #111');
+      out.push('N20');
+      out.push('G00 X' + (rawDia + 3).toFixed(2) + ' Z-[0 - #112 - 1.0]');
+      out.push('G01 X' + (isID ? rawIdDia : 0).toFixed(2) + ' F' + feed.toFixed(3));
+      out.push('G00 Z2.0');
+      out.push('IF [#112 LT #111] GOTO 10');
+      out.push('GOTO 90');
+    } else if (op.includes('DRILL') || op.includes('TAP') || op.includes('BORE')) {
+      const hDepth = Math.min(lenZ, Math.max(4, depthZ));
+      out.push('#120 = ' + peckQ.toFixed(2) + ' (PECK Q)');
+      out.push('#121 = ' + hDepth.toFixed(2) + ' (HOLE DEPTH)');
+      out.push('#122 = 0.0 (CURRENT Z)');
+      out.push('G97 S' + rpm + ' M03');
+      out.push('G00 X0.0 Z5.0');
+      out.push('N10');
+      out.push('#122 = #122 + #120');
+      out.push('IF [#122 LE #121] GOTO 20');
+      out.push('#122 = #121');
+      out.push('N20');
+      out.push('G01 Z-[0 - #122] F' + (op.includes('TAP') ? pitch.toFixed(2) : feed.toFixed(3)));
+      out.push('G00 Z' + ((mfgCfg.drillMode || '').includes('G73') ? '[0 - #122 + 1.5]' : '3.0'));
+      out.push('IF [#122 LT #121] GOTO 10');
+      out.push('GOTO 90');
+    } else {
+      const roughTarget = isID ? Math.max(rawIdDia, finDia - finStock) : finDia + finStock;
+      const zCut = Math.max(4, lenZ - lenStock);
+      out.push('#106 = #101 (WORKING DIA)');
+      out.push('#107 = ' + roughTarget.toFixed(3) + ' (ROUGH LIMIT)');
+      out.push('N10');
+      out.push('#106 = ' + (isID ? '#106 + #104' : '#106 - #104'));
+      if (isID) {
+        out.push('IF [#106 LE #107] GOTO 20');
+        out.push('#106 = #107');
+      } else {
+        out.push('IF [#106 GE #107] GOTO 20');
+        out.push('#106 = #107');
+      }
+      out.push('N20');
+      out.push('G00 X' + (isID ? rawIdDia - 2 : rawDia + 3).toFixed(2) + ' Z1.0');
+      out.push('G01 X#106 Z0.0 F' + feed.toFixed(3));
+      out.push('Z-' + zCut.toFixed(2) + ' F' + (feed * 0.85).toFixed(3));
+      out.push('G01 X' + (isID ? rawIdDia - 2 : rawIdDia ? rawDia + 3 : rawDia + 3).toFixed(2));
+      out.push('IF [' + (isID ? '#106 LT #107' : '#106 GT #107') + '] GOTO 10');
+      out.push('GOTO 50');
+      out.push('N50');
+      out.push('G00 X' + finDia.toFixed(3) + ' Z1.0');
+      out.push('G01 Z-' + lenZ.toFixed(2) + ' F' + (feed * 0.5).toFixed(3));
+      out.push('GOTO 90');
+    }
+
+    out.push('N90');
+    out.push('G00 X120.0 Z100.0 M05');
+    out.push('M30');
+    out.push('%');
+    return out.join('\n');
+  }
+
+  // MILLING IF-GOTO MACRO (Face, Contour, Slot, Pocket, Spigot, Drilling, Tapping)
+  out.push('#101 = ' + depthZ.toFixed(2) + ' (TOTAL Z DEPTH)');
+  out.push('#102 = ' + peckQ.toFixed(2) + ' (Z STEP Q)');
+  out.push('#103 = ' + Math.max(5, finDia * 0.6).toFixed(2) + ' (RADIUS / HALF-W)');
+  out.push('#104 = 0.0 (CURRENT Z)');
+  out.push('T01 M06');
+  out.push('S' + rpm + ' M03');
+  out.push('G43 H01 Z20.0');
+
+  if (op.includes('DRILL') || op.includes('TAP') || op.includes('BORE')) {
+    out.push('G00 X0.0 Y0.0 Z5.0');
+    out.push('N10');
+    out.push('#104 = #104 + #102');
+    out.push('IF [#104 LE #101] GOTO 20');
+    out.push('#104 = #101');
+    out.push('N20');
+    out.push('G01 Z-[0 - #104] F' + (op.includes('TAP') ? pitch.toFixed(2) : Math.max(80, Math.round(feed * 0.5))));
+    out.push('G00 Z' + ((mfgCfg.drillMode || '').includes('G73') ? '[0 - #104 + 1.5]' : '3.0'));
+    out.push('IF [#104 LT #101] GOTO 10');
+    out.push('GOTO 90');
+  } else if (op.includes('FACE')) {
+    const xSpan = Math.max(25, rawDia * 0.45);
+    const ySpan = Math.max(15, lenZ * 0.4);
+    out.push('#105 = ' + xSpan.toFixed(2) + ' (X HALF-SPAN)');
+    out.push('#106 = ' + ySpan.toFixed(2) + ' (Y HALF-SPAN)');
+    out.push('#107 = 0 - #106 (CURRENT Y)');
+    out.push('N10');
+    out.push('#104 = #104 + #102');
+    out.push('IF [#104 LE #101] GOTO 20');
+    out.push('#104 = #101');
+    out.push('N20');
+    out.push('G00 X-[0 - #105] Y#107 Z2.0');
+    out.push('G01 Z-[0 - #104] F' + Math.max(100, Math.round(feed * 0.5)));
+    out.push('G01 X#105 F' + feed);
+    out.push('#107 = #107 + 10.0');
+    out.push('G01 Y#107 F' + feed);
+    out.push('G01 X-[0 - #105] F' + feed);
+    out.push('IF [#104 LT #101] GOTO 10');
+    out.push('GOTO 90');
+  } else {
+    out.push('N10');
+    out.push('#104 = #104 + #102');
+    out.push('IF [#104 LE #101] GOTO 20');
+    out.push('#104 = #101');
+    out.push('N20');
+    out.push('G00 X-[0 - #103] Y0.0 Z2.0');
+    out.push('G01 Z-[0 - #104] F' + Math.max(80, Math.round(feed * 0.5)));
+    out.push('G02 I#103 J0.0 F' + feed + ' (' + op + ')');
+    out.push('IF [#104 LT #101] GOTO 10');
+    out.push('GOTO 90');
+  }
+
+  out.push('N90');
+  out.push('G00 Z50.0 M05');
+  out.push('M30');
+  out.push('%');
+  return out.join('\n');
+}
+
 export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhatsApp }) {
   const categories = Object.keys(JYOTI_MACHINE_CASCADE);
   const initialCategory = categories[0] || 'Turning';
@@ -1122,6 +1326,43 @@ const [controller, setController] = useState(CONTROLLERS[0] || 'Fanuc');
 
   return (
     <div className="space-y-4 pb-24">
+
+      <div className="my-3 p-3 rounded-xl bg-slate-900/95 border border-cyan-500/30">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div className="text-xs font-bold text-cyan-300">IF / GOTO Macro Data Table (Turning & Milling)</div>
+          <span className="text-[10px] text-slate-400">Enter values to auto-update IF/GOTO macro</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-700 text-slate-400">
+                <th className="py-1.5 px-2">Raw/Span X</th>
+                <th className="py-1.5 px-2">Target/Dia Y</th>
+                <th className="py-1.5 px-2">Length/Z</th>
+                <th className="py-1.5 px-2">Depth Z</th>
+                <th className="py-1.5 px-2">Peck/Step Q</th>
+                <th className="py-1.5 px-2">Pitch</th>
+                <th className="py-1.5 px-2">RPM</th>
+                <th className="py-1.5 px-2">Feed</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="text-slate-100">
+                <td className="p-1"><input type="number" value={mfgCfg.stockX || '50'} onChange={(e) => setMfgCfg({ ...mfgCfg, stockX: e.target.value })} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" /></td>
+                <td className="p-1"><input type="number" value={mfgCfg.stockY || '32'} onChange={(e) => setMfgCfg({ ...mfgCfg, stockY: e.target.value })} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" /></td>
+                <td className="p-1"><input type="number" value={mfgCfg.stockZ || '45'} onChange={(e) => setMfgCfg({ ...mfgCfg, stockZ: e.target.value })} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" /></td>
+                <td className="p-1"><input type="number" value={mfgCfg.featureDepth || '10'} onChange={(e) => setMfgCfg({ ...mfgCfg, featureDepth: e.target.value })} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" /></td>
+                <td className="p-1"><input type="number" step="0.5" value={mfgCfg.peckDepth || '4'} onChange={(e) => setMfgCfg({ ...mfgCfg, peckDepth: e.target.value })} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" /></td>
+                <td className="p-1"><input type="number" step="0.25" value={mfgCfg.threadPitch || mfgCfg.tapPitch || '1.5'} onChange={(e) => setMfgCfg({ ...mfgCfg, threadPitch: e.target.value, tapPitch: e.target.value })} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" /></td>
+                <td className="p-1"><input type="number" value={mfgCfg.spindleRpm || '1200'} onChange={(e) => setMfgCfg({ ...mfgCfg, spindleRpm: e.target.value })} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" /></td>
+                <td className="p-1"><input type="number" step="0.05" value={mfgCfg.feedRate || '200'} onChange={(e) => setMfgCfg({ ...mfgCfg, feedRate: e.target.value })} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <pre className="mt-2.5 p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-64">{generateIfGotoMacroFromTable({ domainKey, machineType, workSide, operation, mfgCfg })}</pre>
+      </div>
+
       <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3.5 shadow-lg">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
