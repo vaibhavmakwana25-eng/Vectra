@@ -762,6 +762,205 @@ const buildOdTurnMillCode = (sampleName = '', ctrlName = 'Fanuc') => {
   ].join('\n');
 };
 
+
+const buildVtlTurnMillCode = (sampleName = '', ctrlName = 'Fanuc') => {
+  const name = String(sampleName || '');
+  const u = String(ctrlName || '').toUpperCase();
+
+  if (name.includes('Tapping')) {
+    if (u.includes('SIEMENS')) {
+      return [
+        '; SIEMENS SINUMERIK - VTL FACE LIVE TAPPING',
+        'T4 D1',
+        'SPOS=0',
+        'G94 S450 M13',
+        'G00 X180.0 C0.0 Z20.0',
+        'CYCLE84(20.0, 0.0, 5.0, -18.0, , 1.25, 3, 450, 450, 0.0, 0, 1, 0)',
+        'G00 Z150.0 M05',
+        'M30'
+      ].join('\n');
+    }
+    if (u.includes('MITSUBISHI')) {
+      return [
+        '%',
+        'O8002 (MITSUBISHI VTL FACE LIVE TAPPING)',
+        'G21 G40 G80 G94 G54 G90',
+        'T0404',
+        'G00 X180.0 C0.0 Z20.0',
+        'S450 M13',
+        'G84 X180.0 Y0.0 Z-18.0 R5.0 F1.25',
+        'G80',
+        'G00 Z150.0 M15',
+        'M30',
+        '%'
+      ].join('\n');
+    }
+    return [
+      '%',
+      'O8002 (FANUC VTL FACE LIVE TAPPING)',
+      'G21 G40 G80 G94 G54 G90',
+      'T0404 (VTL FACE TAP LIVE TOOL)',
+      'G00 X180.0 C0.0 Z20.0',
+      'S450 M13',
+      'G01 Z-18.0 F1.25 (PITCH 1.25 MM)',
+      'G01 Z20.0 F2.5',
+      'G00 Z150.0 M15',
+      'M30',
+      '%'
+    ].join('\n');
+  }
+
+  if (name.includes('Slot')) {
+    if (u.includes('SIEMENS')) {
+      return [
+        '; SIEMENS SINUMERIK - VTL FACE SLOT & POCKET (C + X)',
+        'T2 D1',
+        'SPOS=0',
+        'G94 S2200 M13',
+        'G00 X160.0 C0.0 Z10.0',
+        'SLOT1(160.0, 0.0, 10.0, 5.0, -6.0, 30.0, 12.0, 0.0, 2.0, 0.2, 0.1, 220, 140, 1)',
+        'G00 Z150.0 M05',
+        'M30'
+      ].join('\n');
+    }
+    if (u.includes('MITSUBISHI')) {
+      return [
+        '%',
+        'O8003 (MITSUBISHI VTL FACE SLOT & POCKET)',
+        'G21 G40 G80 G94 G54 G90',
+        'T0202',
+        'G00 X160.0 C0.0 Z10.0',
+        'S2200 M13',
+        'G01 Z-6.0 F160',
+        'G01 X200.0 C20.0 F350',
+        'G01 Z10.0',
+        'G00 Z150.0 M15',
+        'M30',
+        '%'
+      ].join('\n');
+    }
+    return [
+      '%',
+      'O8003 (FANUC VTL FACE SLOT & POCKET - C + X)',
+      'G21 G40 G80 G94 G54 G90',
+      'T0202 (VTL ENDMILL LIVE TOOL)',
+      '#120 = 6.0 (TOTAL FACE DEPTH Z)',
+      '#121 = 2.0 (Z STEP DEPTH)',
+      '#122 = 0.0 (CURRENT Z STEP)',
+      'S2200 M13',
+      'G00 X160.0 C0.0 Z10.0',
+      'N10',
+      '#122 = #122 + #121',
+      'IF [#122 LE #120] GOTO 20',
+      '#122 = #120',
+      'N20',
+      'G01 Z-[0 - #122] F150',
+      'G01 X200.0 C15.0 F320',
+      'G01 X160.0 C0.0 F320',
+      'IF [#122 LT #120] GOTO 10',
+      'G00 Z150.0 M15',
+      'M30',
+      '%'
+    ].join('\n');
+  }
+
+  if (name.includes('OD / Side')) {
+    if (u.includes('SIEMENS')) {
+      return [
+        '; SIEMENS SINUMERIK - VTL OD / SIDE LIVE TOOL',
+        'T5 D1',
+        'SPOS=0',
+        'G94 S1600 M13',
+        'G00 X260.0 C0.0 Z-25.0',
+        'CYCLE83(10.0, 0.0, 5.0, -20.0, , 5.0, , , , , 1)',
+        'G00 X320.0 Z150.0 M05',
+        'M30'
+      ].join('\n');
+    }
+    if (u.includes('MITSUBISHI')) {
+      return [
+        '%',
+        'O8004 (MITSUBISHI VTL OD / SIDE LIVE TOOL)',
+        'G21 G40 G80 G94 G54 G90',
+        'T0505',
+        'G00 X260.0 C0.0 Z-25.0',
+        'S1600 M13',
+        'G83 X220.0 R255.0 Q5.0 F180',
+        'G80',
+        'G00 X320.0 Z150.0 M15',
+        'M30',
+        '%'
+      ].join('\n');
+    }
+    return [
+      '%',
+      'O8004 (FANUC VTL OD / SIDE LIVE TOOL)',
+      'G21 G40 G80 G94 G54 G90',
+      'T0505 (VTL ANGULAR / RADIAL LIVE TOOL)',
+      'S1600 M13',
+      'G00 X260.0 C0.0 Z-25.0',
+      'G01 X220.0 F180',
+      'G00 X265.0',
+      'G00 C90.0',
+      'G01 X220.0 F180',
+      'G00 X320.0 Z150.0 M15',
+      'M30',
+      '%'
+    ].join('\n');
+  }
+
+  // Default: VTL Face PCD Drilling (C-Axis IF/GOTO)
+  if (u.includes('SIEMENS')) {
+    return [
+      '; SIEMENS SINUMERIK - VTL FACE PCD DRILLING',
+      'T3 D1',
+      'SPOS=0',
+      'G94 S1500 M13',
+      'G00 X180.0 C0.0 Z20.0',
+      'CYCLE83(20.0, 0.0, 5.0, -22.0, , 5.0, , , , , 1)',
+      'G00 Z150.0 M05',
+      'M30'
+    ].join('\n');
+  }
+  if (u.includes('MITSUBISHI')) {
+    return [
+      '%',
+      'O8001 (MITSUBISHI VTL FACE PCD DRILLING)',
+      'G21 G40 G80 G94 G54 G90',
+      'T0303',
+      'G00 X180.0 C0.0 Z20.0',
+      'S1500 M13',
+      'G83 X180.0 Y0.0 Z-22.0 Q5.0 R5.0 F180',
+      'G80',
+      'G00 Z150.0 M15',
+      'M30',
+      '%'
+    ].join('\n');
+  }
+  return [
+    '%',
+    'O8001 (FANUC VTL FACE PCD DRILLING - C AXIS LOOP)',
+    'G21 G40 G80 G94 G54 G90',
+    'T0303 (VTL FACE DRILL LIVE TOOL)',
+    '#110 = 0.0 (START C ANGLE)',
+    '#111 = 60.0 (STEP ANGLE = 360 / 6 HOLES)',
+    '#112 = 360.0 (END ANGLE)',
+    '#113 = 180.0 (PCD RADIUS / X POSITION)',
+    '#114 = 22.0 (DRILL DEPTH Z)',
+    'S1500 M13',
+    'G00 X#113 C#110 Z10.0',
+    'N10',
+    'G00 C#110',
+    'G01 Z-[0 - #114] F180',
+    'G00 Z10.0',
+    '#110 = #110 + #111',
+    'IF [#110 LT #112] GOTO 10',
+    'G00 Z150.0 M15',
+    'M30',
+    '%'
+  ].join('\n');
+};
+
 export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhatsApp }) {
   const categories = Object.keys(JYOTI_MACHINE_CASCADE);
   const initialCategory = categories[0] || 'Turning';
@@ -1811,7 +2010,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                 )}
               </div>
             </div>
-            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{(typeof selectedSample !== 'undefined' && String(selectedSample).startsWith('OD ')) ? buildOdTurnMillCode(selectedSample, typeof controller !== 'undefined' ? controller : 'Fanuc') : ((typeof selectedSample !== 'undefined' && String(selectedSample).startsWith('Turn-Mill')) || (typeof operation !== 'undefined' && operation === 'Turn-Mill') ? buildTurnMillSampleByName(typeof selectedSample !== 'undefined' ? selectedSample : operation, typeof controller !== 'undefined' ? controller : 'Fanuc') : (operation === 'Turn-Mill' ? buildTurnMillSampleCode(controller, operation) : (p.code)))}</pre>
+            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{(typeof selectedSample !== 'undefined' && String(selectedSample).startsWith('VTL ')) ? buildVtlTurnMillCode(selectedSample, typeof controller !== 'undefined' ? controller : 'Fanuc') : ((typeof selectedSample !== 'undefined' && String(selectedSample).startsWith('OD ')) ? buildOdTurnMillCode(selectedSample, typeof controller !== 'undefined' ? controller : 'Fanuc') : ((typeof selectedSample !== 'undefined' && String(selectedSample).startsWith('Turn-Mill')) || (typeof operation !== 'undefined' && operation === 'Turn-Mill') ? buildTurnMillSampleByName(typeof selectedSample !== 'undefined' ? selectedSample : operation, typeof controller !== 'undefined' ? controller : 'Fanuc') : (operation === 'Turn-Mill' ? buildTurnMillSampleCode(controller, operation) : (p.code))))}</pre>
           </div>
         ))}
       </div>
