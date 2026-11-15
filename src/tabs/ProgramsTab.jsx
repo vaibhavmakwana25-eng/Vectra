@@ -1457,6 +1457,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               required
             />
             <CncSimulator
+              code={code}
               domainKey={domainKey}
               machineType={machineType}
               workSide={workSide}
@@ -1518,4 +1519,5 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
+
 
