@@ -300,7 +300,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
         </div>
 
         {/* Quick Cycle Template Box */}
-        <div className="mb-3"><label className="block text-[11px] font-semibold text-cyan-300 mb-1">Program Structure Mode (Cycle • Macro • ISO G-Code & M-Code)</label><select value={programMode} onChange={(e) => setProgramMode(e.target.value)} className="w-full bg-slate-950 border border-cyan-500/40 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-400 outline-none">{PROGRAM_MODES.map((m) => (<option key={m} value={m}>{m}</option>))}</select></div><div className="bg-slate-950/80 border border-cyan-500/30 rounded-xl p-3 space-y-2.5">
+        <div className="bg-slate-950/80 border border-cyan-500/30 rounded-xl p-3 space-y-2.5">
           <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-300">
             <Layers className="w-4 h-4" />
             <span>Quick Cycle Template ({controller} • {operation} • {workSide})</span>
@@ -406,6 +406,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
+
 
 
 
