@@ -70,27 +70,42 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
     };
 
     if (operation === 'Drilling' || operation === 'Tapping') {
-      const drillDia = operation === 'Tapping'
+      const isTap = operation === 'Tapping';
+      const drillDia = isTap
         ? Math.max(3, Number(mfgCfg.tapDia || 10) - Number(mfgCfg.tapPitch || 1.5))
         : Number(mfgCfg.drillDia || 16);
-      const peck = Math.max(4, Number(mfgCfg.peckDepth || 10));
-      snapshot(5, 0, true, 'rapid', `G00 X0.0 Z5.0 (${operation} Ø${drillDia.toFixed(1)})`);
-      for (let d = -peck; d >= -Math.min(45, partLen); d -= peck) {
-        for (let s = 1; s <= 6; s++) {
-          const zNow = (d * s) / 6;
+      const modeStr = isTap ? (mfgCfg.tapMode || '') : (mfgCfg.drillMode || 'Deep Hole Peck (G83 - Full Retract)');
+      const isDirect = modeStr.includes('G81') || (isTap && !modeStr.includes('Peck'));
+      const isChipBreak = modeStr.includes('G73') || (isTap && modeStr.includes('Peck'));
+      const targetHoleZ = -Math.min(45, partLen);
+      const peck = isDirect ? Math.abs(targetHoleZ) : Math.max(5, Number(mfgCfg.peckDepth || 10));
+
+      snapshot(5, 0, true, 'rapid', `G00 X0.0 Z5.0 (${modeStr || operation})`);
+      for (let d = -peck; d >= targetHoleZ - 0.1; d -= peck) {
+        const zGoal = Math.max(targetHoleZ, d);
+        for (let s = 1; s <= 5; s++) {
+          const zNow = (zGoal * s) / 5;
           const frac = Math.min(1, Math.abs(zNow) / partLen);
           const sIdx = Math.min(zSlices, Math.round(frac * zSlices));
           for (let i = 0; i <= sIdx; i++) {
             idProfile[i] = Math.max(idProfile[i], drillDia);
-            passTagProfile[i] = 'rough';
+            passTagProfile[i] = isTap ? 'finish' : 'rough';
           }
-          if (operation === 'Tapping') {
+          if (isTap) {
             threadProgressZ = Math.max(threadProgressZ, Math.abs(zNow));
             threadDepthRatio = 1;
           }
-          snapshot(zNow, 0, false, 'rough', `G01 Z${zNow.toFixed(1)} F0.12`);
+          snapshot(zNow, 0, false, isTap ? 'finish' : 'rough', `${isTap ? 'G84' : isChipBreak ? 'G73' : isDirect ? 'G81' : 'G83'} Z${zNow.toFixed(1)} F${isTap ? (mfgCfg.tapPitch || 1.5) : '0.12'}`);
         }
-        snapshot(4, 0, true, 'rapid', `G00 Z4.0 (PECK RETRACT)`);
+        if (zGoal > targetHoleZ + 0.5) {
+          if (isChipBreak) {
+            // G73 Chip-Breaking: Small 1.5mm retract to break chips
+            snapshot(zGoal + 1.8, 0, true, 'rapid', `G73 Z${(zGoal + 1.8).toFixed(1)} (CHIP BREAK)`);
+          } else {
+            // G83 Deep Hole Peck: Full retract to R-plane Z+4.0 to clear flutes
+            snapshot(4, 0, true, 'rapid', `G83 Z4.0 (DEEP HOLE FULL RETRACT)`);
+          }
+        }
       }
       snapshot(18, 0, true, 'rapid', `G28 U0. W0. M05`);
     } else if (operation === 'Threading') {
@@ -1337,3 +1352,4 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     </div>
   );
 }
+
