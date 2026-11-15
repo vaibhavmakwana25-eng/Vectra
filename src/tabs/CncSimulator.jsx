@@ -501,32 +501,38 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
     ins.position.set(-1.5, 2.0, 0);
     toolPart.add(ins);
   } else {
-    // Horizontal Turning Lathe: Horizontal Square Shank Holder extending from Turret (-X) to OD surface!
-    const shankW = operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.5;
-    const hShank = new THREE.Mesh(new THREE.BoxGeometry(24, 4.8, shankW), holderMat);
-    hShank.position.set(12, 2.2, -2);
-    toolPart.add(hShank);
+    // Horizontal Turning Lathe: VERTICAL Square Shank Tool Holder coming straight DOWN from Turret onto OD!
+    const shankW = operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.6;
+    const vShank = new THREE.Mesh(new THREE.BoxGeometry(shankW, 20, 4.6), holderMat);
+    vShank.position.set(0, 10, 0);
+    toolPart.add(vShank);
 
-    const turretAdapter = new THREE.Mesh(new THREE.BoxGeometry(8, 12, 8), holderMat);
-    turretAdapter.position.set(24, 7, -5);
+    // Turret Base Clamp connecting Vertical Tool Holder to Right-Rear Octagonal Turret
+    const clampBlock = new THREE.Mesh(new THREE.BoxGeometry(22, 6.5, 8), holderMat);
+    clampBlock.position.set(11, 18, -3);
+    toolPart.add(clampBlock);
+
+    const turretAdapter = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), holderMat);
+    turretAdapter.position.set(24, 16, -6);
     toolPart.add(turretAdapter);
 
     if (operation === 'Threading') {
-      // OD 60-deg Threading Insert pointing DOWN (-Y onto OD surface)
+      // OD 60-deg Threading Insert at bottom tip of Vertical Holder
       const odThreadIns = new THREE.Mesh(new THREE.ConeGeometry(3.2, 6.2, 3), insertMat);
       odThreadIns.rotation.z = Math.PI;
-      odThreadIns.position.set(1.5, 1.8, 0);
+      odThreadIns.position.set(0, 1.8, 0);
       toolPart.add(odThreadIns);
     } else if (operation === 'Grooving' || operation === 'Parting') {
-      // Narrow Grooving / Parting Blade pointing DOWN (-Y onto OD)
-      const odGrooveIns = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5.5, 4.0), insertMat);
-      odGrooveIns.position.set(1.0, 1.8, 0);
+      // Vertical Grooving / Parting Blade Tip at bottom
+      const odGrooveIns = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5.5, 4.2), insertMat);
+      odGrooveIns.position.set(0, 2.0, 0);
       toolPart.add(odGrooveIns);
     } else {
-      // OD CNMG Diamond Insert pointing DOWN (-Y directly touching OD cutting line!)
+      // OD CNMG Diamond Insert mounted vertically at bottom tip touching OD cutting line!
       const odDiamondIns = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2.0, 4), insertMat);
+      odDiamondIns.rotation.x = Math.PI / 2;
       odDiamondIns.rotation.y = Math.PI / 4;
-      odDiamondIns.position.set(1.8, 1.2, 0);
+      odDiamondIns.position.set(-0.5, 1.8, 0);
       toolPart.add(odDiamondIns);
     }
   }
@@ -946,5 +952,6 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     </div>
   );
 }
+
 
 
