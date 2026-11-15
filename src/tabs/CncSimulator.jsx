@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Play, Pause, RotateCcw, Box, ZoomIn, ZoomOut, Scissors } from 'lucide-react';
 
-function buildStepMoves(code, domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
+function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
   const tName = (templateName + ' ' + workSide).toUpperCase();
   const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
@@ -1057,3 +1057,4 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     </div>
   );
 }
+
