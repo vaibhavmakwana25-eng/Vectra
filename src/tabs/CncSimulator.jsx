@@ -27,6 +27,8 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
   const moves = [];
   const tName = (templateName + ' ' + workSide).toUpperCase();
   const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
+  const diaStock = Number(mfgCfg.diaFinishStock ?? 0.5);
+  const lenStock = Number(mfgCfg.lenFinishStock ?? 0.2);
   const wallAllow = Number(mfgCfg.wallAllowance ?? 0.3);
   const btmAllow = Number(mfgCfg.bottomAllowance ?? 0.2);
   const depth = Number(mfgCfg.featureDepth ?? 10);
@@ -41,70 +43,109 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
     const isFace = workSide === 'Face' || operation === 'Facing';
 
     if (operation === 'Drilling' || operation === 'Tapping') {
-      moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: rawOD, curID: 0, curZ: 0, label: 'G00 X0.0 Z4.0' });
-      for (let d = -10; d >= -Math.min(45, partLen); d -= 10) {
-        moves.push({ x: 0, y: 0, z: d, rapid: false, passType: 'rough', curOD: rawOD, curID: 12, curZ: d, label: `${operation.toUpperCase()} Z${d}.0` });
-        moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: rawOD, curID: 12, curZ: d, label: 'G00 Z4.0 RETRACT' });
+      const drillDia = operation === 'Tapping' ? Math.max(4, Number(mfgCfg.tapDia || 10) - Number(mfgCfg.tapPitch || 1.5)) : Number(mfgCfg.drillDia || 16);
+      const peck = Math.max(5, Number(mfgCfg.peckDepth || 10));
+      moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: rawOD, curID: 0, cutZ: 0, label: `G00 X0.0 Z4.0 (${operation} Ø${drillDia}MM)` });
+      for (let d = -peck; d >= -Math.min(45, partLen); d -= peck) {
+        moves.push({ x: 0, y: 0, z: d, rapid: false, passType: 'rough', curOD: rawOD, curID: drillDia, cutZ: Math.abs(d), label: `${operation.toUpperCase()} Z${d}.0` });
+        moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: rawOD, curID: drillDia, cutZ: Math.abs(d), label: 'G00 Z4.0 RETRACT' });
       }
-      moves.push({ x: 0, y: 0, z: 15, rapid: true, passType: 'rapid', curOD: rawOD, curID: 12, curZ: -Math.min(45, partLen), label: 'G00 HOME' });
-    } else if (isFace) {
-      let curFaceZ = 0;
-      [ -1.0, -2.0, -3.0 ].forEach((fz, idx) => {
-        moves.push({ x: rawOD + 2, y: 0, z: fz, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, curZ: curFaceZ, label: `FACE PASS ${idx + 1} Z${fz}` });
-        curFaceZ = fz;
-        moves.push({ x: isID ? rawID : -1, y: 0, z: fz, rapid: false, passType: idx === 2 ? 'finish' : 'rough', curOD: rawOD, curID: isID ? rawID : 0, curZ: curFaceZ, label: `FACING CUT Z${fz}` });
-        moves.push({ x: rawOD + 2, y: 0, z: fz + 1.5, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, curZ: curFaceZ, label: 'G00 RETRACT' });
+      moves.push({ x: 0, y: 0, z: 15, rapid: true, passType: 'rapid', curOD: rawOD, curID: drillDia, cutZ: Math.min(45, partLen), label: 'G00 HOME' });
+    } else if (operation === 'Threading') {
+      const thDia = Number(mfgCfg.threadDia || 24);
+      const thH = Number(mfgCfg.threadHeight || 1.84);
+      const safeX = isID ? thDia - 6 : thDia + 5;
+      const targetLen = Math.min(35, partLen - 5);
+      const passRatios = [0.4, 0.7, 0.9, 1.0];
+      passRatios.forEach((ratio, idx) => {
+        const px = isID ? thDia - thH * 2 * (1 - ratio) : thDia - thH * 2 * ratio;
+        moves.push({ x: safeX, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: 0, label: `THREAD PASS ${idx + 1}/4` });
+        moves.push({ x: px, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: 0, label: `G00 X${px.toFixed(2)}` });
+        // Progressive Z steps so user sees threading advance line by line
+        for (let s = 1; s <= 4; s++) {
+          const zStep = -(targetLen * s) / 4;
+          moves.push({ x: px, y: 0, z: zStep, rapid: false, passType: idx === 3 ? 'finish' : 'rough', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: Math.abs(zStep), label: `G76 X${px.toFixed(2)} Z${zStep.toFixed(1)}` });
+        }
+        moves.push({ x: safeX, y: 0, z: -targetLen, rapid: true, passType: 'rapid', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: targetLen, label: 'G00 RETRACT' });
       });
-      moves.push({ x: rawOD + 6, y: 0, z: 12, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, curZ: curFaceZ, label: 'G00 HOME' });
-    } else if (operation === 'Parting') {
-      const cutZ = -Math.min(35, partLen - 5);
-      moves.push({ x: rawOD + 3, y: 0, z: cutZ, rapid: true, passType: 'rapid', curOD: rawOD, curID: 0, curZ: 0, label: `PARTING POS Z${cutZ}` });
-      for (let px = rawOD - 6; px >= 0; px -= 8) {
-        moves.push({ x: Math.max(0, px), y: 0, z: cutZ, rapid: false, passType: 'rough', curOD: rawOD, curID: 0, curZ: cutZ, grooveX: Math.max(0, px), label: `PARTING CUT X${Math.max(0, px)}` });
+      moves.push({ x: safeX, y: 0, z: 12, rapid: true, passType: 'rapid', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: targetLen, label: 'THREADING COMPLETE' });
+    } else if (isFace) {
+      [-1.0, -2.0, -3.0].forEach((fz, idx) => {
+        moves.push({ x: rawOD + 2, y: 0, z: fz, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 0, label: `FACE PASS ${idx + 1} Z${fz}` });
+        moves.push({ x: rawOD / 2, y: 0, z: fz, rapid: false, passType: idx === 2 ? 'finish' : 'rough', curOD: rawOD, curID: isID ? rawID : 0, cutZ: Math.abs(fz), label: `FACING X${(rawOD / 2).toFixed(1)} Z${fz}` });
+        moves.push({ x: isID ? rawID : -1, y: 0, z: fz, rapid: false, passType: idx === 2 ? 'finish' : 'rough', curOD: rawOD, curID: isID ? rawID : 0, cutZ: Math.abs(fz), label: `FACING CENTER Z${fz}` });
+        moves.push({ x: rawOD + 2, y: 0, z: fz + 1.5, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: Math.abs(fz), label: 'G00 RETRACT' });
+      });
+      moves.push({ x: rawOD + 6, y: 0, z: 12, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 3, label: 'G00 HOME' });
+    } else if (operation === 'Grooving' || operation === 'Parting') {
+      const cutZ = -Math.min(30, partLen - 5);
+      const targetX = operation === 'Parting' ? 0 : isID ? finOD + 6 : Math.max(12, finOD - 6);
+      const startX = isID ? finOD - 4 : rawOD + 2;
+      moves.push({ x: startX, y: 0, z: cutZ, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 0, label: `G00 X${startX} Z${cutZ}` });
+      for (let s = 1; s <= 4; s++) {
+        const curX = startX + ((targetX - startX) * s) / 4;
+        moves.push({ x: curX, y: 0, z: cutZ, rapid: false, passType: 'rough', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 4, label: `${operation.toUpperCase()} X${curX.toFixed(1)}` });
       }
-      moves.push({ x: rawOD + 6, y: 0, z: 12, rapid: true, passType: 'rapid', curOD: rawOD, curID: 0, curZ: cutZ, label: 'PARTING COMPLETE' });
+      moves.push({ x: startX, y: 0, z: cutZ, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 4, label: 'G00 RETRACT' });
+      moves.push({ x: startX, y: 0, z: 12, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 4, label: 'G00 HOME' });
     } else if (isID) {
       let activeID = Math.max(12, rawID);
+      const targetZ = Math.max(10, partLen - lenStock);
       if (stage.includes('Rough')) {
-        for (let px = activeID + 3; px <= finOD - wallAllow * 2; px += 3) {
-          moves.push({ x: activeID - 2, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, curZ: 0, label: `ID ROUGH APPROACH X${px.toFixed(1)}` });
-          moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, curZ: 0, label: `G00 X${px.toFixed(1)}` });
+        for (let px = activeID + 4; px <= finOD - diaStock; px += 4) {
+          moves.push({ x: activeID - 2, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: 0, label: `ID ROUGH APPROACH X${px.toFixed(1)}` });
+          moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: 0, label: `G00 X${px.toFixed(1)}` });
+          // 4 progressive Z-segments so material removes gradually!
+          for (let s = 1; s <= 4; s++) {
+            const zProg = (targetZ * s) / 4;
+            moves.push({ x: px, y: 0, z: -zProg, rapid: false, passType: 'rough', curOD: rawOD, curID: px, cutZ: zProg, label: `ID ROUGH X${px.toFixed(1)} Z-${zProg.toFixed(1)}` });
+          }
           activeID = px;
-          moves.push({ x: px, y: 0, z: -partLen, rapid: false, passType: 'rough', curOD: rawOD, curID: activeID, curZ: -partLen, label: `BORING CUT X${px.toFixed(1)} Z-${partLen}` });
-          moves.push({ x: rawID - 2, y: 0, z: -partLen, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, curZ: -partLen, label: 'G00 RETRACT' });
+          moves.push({ x: rawID - 2, y: 0, z: -targetZ, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: targetZ, label: 'G00 RETRACT' });
         }
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
-        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, curZ: 0, label: `ID FINISH G41/G42 X${finOD}` });
+        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: 0, label: `ID FINISH G41/G42 X${finOD}` });
+        for (let s = 1; s <= 4; s++) {
+          const zProg = (partLen * s) / 4;
+          moves.push({ x: finOD, y: 0, z: -zProg, rapid: false, passType: 'finish', curOD: rawOD, curID: finOD, cutZ: zProg, label: `FINISH BORE X${finOD} Z-${zProg.toFixed(1)}` });
+        }
         activeID = finOD;
-        moves.push({ x: finOD, y: 0, z: -partLen, rapid: false, passType: 'finish', curOD: rawOD, curID: activeID, curZ: -partLen, label: `FINISH BORE DIA ${finOD}MM` });
       }
       if (stage.includes('Chamfer')) {
-        moves.push({ x: finOD + chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, curZ: 0, label: 'ID CHAMFER START' });
-        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', curOD: rawOD, curID: activeID, curZ: -partLen, label: `ID CHAMFER C${chamfSize}` });
+        moves.push({ x: finOD + chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: partLen, label: 'ID CHAMFER APPROACH' });
+        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', curOD: rawOD, curID: activeID, cutZ: partLen, label: `ID CHAMFER C${chamfSize}` });
       }
-      moves.push({ x: rawID - 2, y: 0, z: 15, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, curZ: -partLen, label: 'G00 HOME' });
+      moves.push({ x: rawID - 2, y: 0, z: 15, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: partLen, label: 'G00 HOME' });
     } else {
       let activeOD = rawOD;
+      const targetZ = Math.max(10, partLen - lenStock);
       if (stage.includes('Rough')) {
-        for (let px = rawOD - 4; px >= finOD + wallAllow * 2; px -= 4) {
-          moves.push({ x: activeOD + 3, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, curZ: 0, label: `OD ROUGH APPROACH X${px.toFixed(1)}` });
-          moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, curZ: 0, label: `G00 X${px.toFixed(1)}` });
+        for (let px = rawOD - 4; px >= finOD + diaStock; px -= 4) {
+          moves.push({ x: activeOD + 3, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: 0, label: `OD ROUGH APPROACH X${px.toFixed(1)}` });
+          moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: 0, label: `G00 X${px.toFixed(1)}` });
+          // 4 progressive Z-segments so OD steps down smoothly!
+          for (let s = 1; s <= 4; s++) {
+            const zProg = (targetZ * s) / 4;
+            moves.push({ x: px, y: 0, z: -zProg, rapid: false, passType: 'rough', curOD: px, curID: 0, cutZ: zProg, label: `OD CUT X${px.toFixed(1)} Z-${zProg.toFixed(1)}` });
+          }
           activeOD = px;
-          moves.push({ x: px, y: 0, z: -partLen, rapid: false, passType: 'rough', curOD: activeOD, curID: 0, curZ: -partLen, label: `OD CUT X${px.toFixed(1)} Z-${partLen}` });
-          moves.push({ x: px + 2, y: 0, z: -partLen + 1, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, curZ: -partLen, label: 'G00 RETRACT' });
+          moves.push({ x: px + 2, y: 0, z: -targetZ + 1, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: targetZ, label: 'G00 RETRACT' });
         }
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
-        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, curZ: 0, label: `OD FINISH G42 X${finOD}` });
+        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: 0, label: `OD FINISH G42 X${finOD}` });
+        for (let s = 1; s <= 4; s++) {
+          const zProg = (partLen * s) / 4;
+          moves.push({ x: finOD, y: 0, z: -zProg, rapid: false, passType: 'finish', curOD: finOD, curID: 0, cutZ: zProg, label: `FINISH OD X${finOD} Z-${zProg.toFixed(1)}` });
+        }
         activeOD = finOD;
-        moves.push({ x: finOD, y: 0, z: -partLen, rapid: false, passType: 'finish', curOD: activeOD, curID: 0, curZ: -partLen, label: `FINISH OD DIA ${finOD}MM` });
       }
       if (stage.includes('Chamfer')) {
-        moves.push({ x: finOD - chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, curZ: 0, label: 'OD CHAMFER START' });
-        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', curOD: activeOD, curID: 0, curZ: -partLen, label: `OD CHAMFER C${chamfSize}` });
+        moves.push({ x: finOD - chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: partLen, label: 'OD CHAMFER APPROACH' });
+        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', curOD: activeOD, curID: 0, cutZ: partLen, label: `OD CHAMFER C${chamfSize}` });
       }
-      moves.push({ x: rawOD + 6, y: 0, z: 15, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, curZ: -partLen, label: 'G00 HOME' });
+      moves.push({ x: rawOD + 6, y: 0, z: 15, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: partLen, label: 'G00 HOME' });
     }
   } else {
     const isCircPocket = tName.includes('CIRCULAR POCKET') || operation === 'Pocket Milling';
@@ -196,6 +237,8 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
   return moves.length > 0 ? moves : [{ x: 0, y: 0, z: 10, rapid: true, passType: 'rapid', label: 'READY' }];
 }
 
+const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
+
 export default function CncSimulator({ domainKey, machineType, workSide, operation, templateName = '', mfgCfg = {} }) {
   const [playing, setPlaying] = useState(true);
   const [stepIdx, setStepIdx] = useState(0);
@@ -232,7 +275,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     if (!playing || moves.length === 0) return;
     const timer = setInterval(() => {
       setStepIdx((prev) => (prev + 1 >= moves.length ? 0 : prev + 1));
-    }, Math.max(110, 440 / speed));
+    }, Math.max(80, Math.round(450 / speed)));
     return () => clearInterval(timer);
   }, [playing, moves, speed]);
 
@@ -251,15 +294,16 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
   };
 
   const stickout = Math.min(58, Math.max(28, Number(mfgCfg.chuckStickout || 55) * 0.75));
+  const partLen = Math.max(10, Number(mfgCfg.stockZ || 45));
 
   const mapPoint3D = (pt) => {
     if (domainKey === 'Turning') {
-      const zFromFace = pt.z || 0;
-      const rad = (pt.x || 0) * 0.52;
+      const zNorm = ((pt.z || 0) / partLen) * (stickout * 0.85);
+      const rad = ((pt.x || 0) / Math.max(20, Number(mfgCfg.stockX || 50))) * 32;
       if (isVTL) {
-        return project3D(rad, 0, stickout / 2 + zFromFace * 0.72);
+        return project3D(rad, 0, stickout / 2 + zNorm);
       }
-      return project3D(stickout / 2 + zFromFace * 0.72, 0, rad);
+      return project3D(stickout / 2 + zNorm, 0, rad);
     }
     return project3D(pt.x || 0, pt.y || 0, pt.z || 0);
   };
@@ -285,7 +329,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
 
   const polyStr = (pts) => pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
-  // Build Solid 3D Cylinder Side Quads + Front Cap
   const renderSolidCylinder = (radius, axisStart, axisEnd, fillBody, fillCap, strokeCol, steps = 28) => {
     const startAngle = 0;
     const endAngle = halfCut ? Math.PI : Math.PI * 2;
@@ -305,7 +348,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     }
     return (
       <g>
-        {/* Solid Side Skin Quads */}
         {sRing.map((p, i) => {
           if (i === sRing.length - 1) return null;
           const quad = [p, sRing[i + 1], eRing[i + 1], eRing[i]];
@@ -314,29 +356,27 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
               key={i}
               points={polyStr(quad)}
               fill={fillBody}
-              fillOpacity="0.88"
+              fillOpacity="0.92"
               stroke={strokeCol}
-              strokeWidth="0.35"
+              strokeWidth="0.3"
             />
           );
         })}
-        {/* Solid Front Face Cap */}
-        <polygon points={polyStr(eRing)} fill={fillCap} fillOpacity="0.92" stroke={strokeCol} strokeWidth="1.4" />
+        <polygon points={polyStr(eRing)} fill={fillCap} fillOpacity="0.95" stroke={strokeCol} strokeWidth="1.4" />
       </g>
     );
   };
 
-  // Dynamic Turning Dimensions from Current Simulation Step!
   const rawOD = Number(mfgCfg.stockX || 50);
   const activeOD = current.curOD ?? rawOD;
   const activeID = current.curID ?? (workSide === 'ID' ? Number(mfgCfg.rawIdDia || 20) : 0);
-  const cutLengthZ = Math.abs(current.curZ || 0) * 0.72;
+  const cutRatio = Math.min(1, Math.max(0, (current.cutZ || 0) / partLen));
+  const cutVisualLen = cutRatio * (stickout * 0.85);
 
-  const rawBarRad = Math.min(34, Math.max(15, rawOD * 0.52));
-  const machinedBarRad = Math.min(rawBarRad, Math.max(8, activeOD * 0.52));
-  const activeBoreRad = Math.min(machinedBarRad - 3, Math.max(0, activeID * 0.52));
+  const rawBarRad = 32;
+  const machinedBarRad = Math.max(8, (activeOD / Math.max(10, rawOD)) * rawBarRad);
+  const activeBoreRad = activeID > 0 ? Math.min(machinedBarRad - 3, Math.max(4, (activeID / Math.max(10, rawOD)) * rawBarRad)) : 0;
 
-  // Dynamic Milling Dimensions from Current Simulation Step!
   const halfX = Math.min(48, Number(mfgCfg.stockX || 100) / 2.2);
   const halfY = Math.min(38, Number(mfgCfg.stockY || 80) / 2.2);
   const stockH = Math.min(26, Number(mfgCfg.stockZ || 30) * 0.8);
@@ -360,8 +400,8 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
   const toolTip = mapPoint3D(current);
   const toolTop = domainKey === 'Turning'
     ? (isVTL
-      ? project3D((current.x || 0) * 0.52 + 22, 0, stickout / 2 + (current.z || 0) * 0.72 + 22)
-      : project3D(stickout / 2 + (current.z || 0) * 0.72 + 16, 0, (current.x || 0) * 0.52 + 26))
+      ? project3D(((current.x || 0) / Math.max(20, rawOD)) * 32 + 22, 0, stickout / 2 + ((current.z || 0) / partLen) * (stickout * 0.85) + 22)
+      : project3D(stickout / 2 + ((current.z || 0) / partLen) * (stickout * 0.85) + 16, 0, ((current.x || 0) / Math.max(20, rawOD)) * 32 + 26))
     : project3D(current.x || 0, current.y || 0, (current.z || 0) + 26);
 
   const cutterDia = Number(mfgCfg.toolDia || 12);
@@ -369,11 +409,11 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
 
   return (
     <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-full min-h-[600px]">
-      {/* Header + Playback Controls */}
+      {/* Header + Playback & Multi-Speed Controls */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Box className="w-4 h-4" />
-          <span>3D {isVTL ? 'VTL Vertical Turning' : domainKey} Solid Sim</span>
+          <span>3D {isVTL ? 'VTL' : domainKey} Step-by-Step Sim</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -392,78 +432,38 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           >
             <RotateCcw className="w-3 h-3" />
           </button>
-          <button
-            type="button"
-            onClick={() => setSpeed(speed === 1 ? 2 : 1)}
-            className="px-2 py-1 rounded-lg bg-slate-800 text-[11px] font-bold text-amber-300 border border-slate-700"
+          <select
+            value={speed}
+            onChange={(e) => setSpeed(Number(e.target.value))}
+            className="px-1.5 py-1 rounded-lg bg-slate-900 text-[11px] font-bold text-amber-300 border border-slate-700 outline-none"
+            title="Animation Speed"
           >
-            {speed}x
-          </button>
+            {SPEED_OPTIONS.map((sp) => (
+              <option key={sp} value={sp}>{sp}x</option>
+            ))}
+          </select>
         </div>
       </div>
 
       {/* 3D View Angle, Zoom & Half-Cut Toolbar */}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-semibold">
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => { setYaw(-28); setPitch(64); }}
-            className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700"
-          >
-            3D Iso
-          </button>
-          <button
-            type="button"
-            onClick={() => { setYaw(0); setPitch(0); }}
-            className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"
-          >
-            Top
-          </button>
-          <button
-            type="button"
-            onClick={() => { setYaw(0); setPitch(88); }}
-            className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"
-          >
-            Front
-          </button>
-          <button
-            type="button"
-            onClick={() => { setYaw(-90); setPitch(88); }}
-            className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"
-          >
-            Side
-          </button>
+          <button type="button" onClick={() => { setYaw(-28); setPitch(64); }} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700">3D Iso</button>
+          <button type="button" onClick={() => { setYaw(0); setPitch(0); }} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700">Top</button>
+          <button type="button" onClick={() => { setYaw(0); setPitch(88); }} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700">Front</button>
+          <button type="button" onClick={() => { setYaw(-90); setPitch(88); }} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700">Side</button>
         </div>
 
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => setHalfCut(!halfCut)}
-            className={`px-2 py-1 rounded flex items-center gap-1 border ${
-              halfCut
-                ? 'bg-amber-500/25 text-amber-300 border-amber-500/60'
-                : 'bg-slate-900 text-slate-300 border-slate-700'
-            }`}
-            title="Half-Cut Section View"
+            className={`px-2 py-1 rounded flex items-center gap-1 border ${halfCut ? 'bg-amber-500/25 text-amber-300 border-amber-500/60' : 'bg-slate-900 text-slate-300 border-slate-700'}`}
           >
             <Scissors className="w-3 h-3" /> ½ Cut
           </button>
-          <button
-            type="button"
-            onClick={() => setZoom((z) => Math.min(2.4, Number((z + 0.2).toFixed(2))))}
-            className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"
-            title="Zoom In"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.2).toFixed(2))))}
-            className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"
-            title="Zoom Out"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
+          <button type="button" onClick={() => setZoom((z) => Math.min(2.4, Number((z + 0.2).toFixed(2))))} className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"><ZoomIn className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.2).toFixed(2))))} className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"><ZoomOut className="w-3.5 h-3.5" /></button>
         </div>
       </div>
 
@@ -486,45 +486,36 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
 
           {domainKey === 'Turning' ? (
             <>
-              {/* 1. SOLID 3D CHUCK (Dark Steel Body) */}
               {renderSolidCylinder(rawBarRad + 11, -stickout / 2 - 20, -stickout / 2, '#1e293b', '#334155', '#64748b', 24)}
-
-              {/* 2. UNCUT RAW STOCK PORTION (Metallic Slate Grey) */}
               {renderSolidCylinder(
                 rawBarRad,
                 -stickout / 2,
-                Math.max(-stickout / 2, stickout / 2 - cutLengthZ),
+                Math.max(-stickout / 2, stickout / 2 - cutVisualLen),
                 '#475569',
                 '#64748b',
                 '#94a3b8',
                 28
               )}
-
-              {/* 3. MACHINED REDUCED OD SECTION (Bright Cyan-Emerald Machined Finish!) */}
-              {cutLengthZ > 1 &&
+              {cutVisualLen > 0.5 &&
                 renderSolidCylinder(
                   machinedBarRad,
-                  Math.max(-stickout / 2, stickout / 2 - cutLengthZ),
+                  Math.max(-stickout / 2, stickout / 2 - cutVisualLen),
                   stickout / 2,
                   '#0d9488',
                   '#14b8a6',
                   '#5eead4',
                   28
                 )}
-
-              {/* 4. MACHINED ID BORE (Dark Cavity with Bright Sky-Blue Inner Wall) */}
               {activeBoreRad > 1 &&
                 renderSolidCylinder(
                   activeBoreRad,
-                  Math.max(-stickout / 2, stickout / 2 - Math.max(8, cutLengthZ)),
+                  Math.max(-stickout / 2, stickout / 2 - Math.max(4, cutVisualLen)),
                   stickout / 2 + 0.3,
                   '#0369a1',
                   '#050914',
                   '#38bdf8',
                   24
                 )}
-
-              {/* 5. HALF-CUT SECTION FACE (Shows Stepped OD & ID Wall Thickness Clearly!) */}
               {halfCut && (
                 <polygon
                   points={polyStr(
@@ -532,21 +523,21 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
                       ? [
                           project3D(-rawBarRad, 0, -stickout / 2),
                           project3D(rawBarRad, 0, -stickout / 2),
-                          project3D(rawBarRad, 0, stickout / 2 - cutLengthZ),
-                          project3D(machinedBarRad, 0, stickout / 2 - cutLengthZ),
+                          project3D(rawBarRad, 0, stickout / 2 - cutVisualLen),
+                          project3D(machinedBarRad, 0, stickout / 2 - cutVisualLen),
                           project3D(machinedBarRad, 0, stickout / 2),
                           project3D(-machinedBarRad, 0, stickout / 2),
-                          project3D(-machinedBarRad, 0, stickout / 2 - cutLengthZ),
-                          project3D(-rawBarRad, 0, stickout / 2 - cutLengthZ)
+                          project3D(-machinedBarRad, 0, stickout / 2 - cutVisualLen),
+                          project3D(-rawBarRad, 0, stickout / 2 - cutVisualLen)
                         ]
                       : [
                           project3D(-stickout / 2, 0, -rawBarRad),
-                          project3D(stickout / 2 - cutLengthZ, 0, -rawBarRad),
-                          project3D(stickout / 2 - cutLengthZ, 0, -machinedBarRad),
+                          project3D(stickout / 2 - cutVisualLen, 0, -rawBarRad),
+                          project3D(stickout / 2 - cutVisualLen, 0, -machinedBarRad),
                           project3D(stickout / 2, 0, -machinedBarRad),
                           project3D(stickout / 2, 0, machinedBarRad),
-                          project3D(stickout / 2 - cutLengthZ, 0, machinedBarRad),
-                          project3D(stickout / 2 - cutLengthZ, 0, rawBarRad),
+                          project3D(stickout / 2 - cutVisualLen, 0, machinedBarRad),
+                          project3D(stickout / 2 - cutVisualLen, 0, rawBarRad),
                           project3D(-stickout / 2, 0, rawBarRad)
                         ]
                   )}
@@ -559,14 +550,12 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
             </>
           ) : (
             <>
-              {/* MILLING SOLID 3D WORKPIECE BLOCK (Raw Slate Metallic) */}
               <polygon points={polyStr(btmCorners)} fill="#1e293b" fillOpacity="0.95" stroke="#475569" strokeWidth="1" />
               <polygon points={polyStr([topCorners[2], topCorners[3], btmCorners[3], btmCorners[2]])} fill="#334155" fillOpacity="0.92" stroke="#64748b" strokeWidth="1" />
               <polygon points={polyStr([topCorners[0], topCorners[3], btmCorners[3], btmCorners[0]])} fill="#334155" fillOpacity="0.9" stroke="#64748b" strokeWidth="1" />
               <polygon points={polyStr([topCorners[1], topCorners[2], btmCorners[2], btmCorners[1]])} fill="#1e293b" fillOpacity="0.95" stroke="#64748b" strokeWidth="1" />
               <polygon points={polyStr(topCorners)} fill="#475569" fillOpacity="0.88" stroke="#94a3b8" strokeWidth="1.4" />
 
-              {/* MACHINED POCKET / SPIGOT FLOOR & WALLS (Bright Teal/Cyan Machined Surface!) */}
               {dynamicCutDepth > 0.5 && (tName.includes('CIRCULAR POCKET') || operation === 'Pocket Milling') && (
                 <polygon
                   points={polyStr(
@@ -597,7 +586,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
 
               {dynamicCutDepth > 0.5 && (tName.includes('CIRCULAR SPIGOT') || operation === 'Spigot Milling') && (
                 <>
-                  {/* Machined surrounding floor */}
                   <polygon
                     points={polyStr([
                       project3D(-halfX + 4, yFront + (halfCut ? 0 : 4), -dynamicCutDepth),
@@ -610,7 +598,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
                     stroke="#5eead4"
                     strokeWidth="1"
                   />
-                  {/* Standing Uncut Center Spigot Boss */}
                   <polygon
                     points={polyStr(
                       circlePoints(20, 28)
@@ -625,7 +612,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
                 </>
               )}
 
-              {/* Front Section Face */}
               <polygon
                 points={polyStr([topCorners[0], topCorners[1], btmCorners[1], btmCorners[0]])}
                 fill={halfCut ? '#f59e0b' : '#334155'}
@@ -634,7 +620,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
                 strokeWidth={halfCut ? '1.6' : '1.2'}
               />
 
-              {/* Half-Cut Machined Pocket Cavity Cutaway */}
               {halfCut && dynamicCutDepth > 0.5 && (
                 <polygon
                   points={polyStr([
@@ -651,7 +636,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
             </>
           )}
 
-          {/* 3D Toolpath Trajectory */}
           {history.map((m, idx) => {
             if (idx === 0) return null;
             const p1 = mapPoint3D(history[idx - 1]);
@@ -670,7 +654,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
             );
           })}
 
-          {/* 3D Cutting Tool */}
           {domainKey === 'Turning' ? (
             <g>
               <line x1={toolTip.x} y1={toolTip.y} x2={toolTop.x} y2={toolTop.y} stroke="#475569" strokeWidth="7" strokeLinecap="round" />
@@ -691,17 +674,15 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           )}
         </svg>
 
-        {/* Live Stock Dimension Readout Overlay */}
         <div className="absolute top-2 left-2.5 right-2.5 flex justify-between items-center text-[10px] font-mono bg-slate-950/85 px-2.5 py-1 rounded border border-slate-800">
           <span className="text-slate-300">
             {domainKey === 'Turning'
               ? `Live OD: Ø${activeOD.toFixed(1)}mm ${activeID > 0 ? `| ID: Ø${activeID.toFixed(1)}mm` : ''}`
               : `Cut Depth: ${dynamicCutDepth.toFixed(1)} / ${mfgCfg.featureDepth || 10}mm`}
           </span>
-          <span className="text-amber-300">Zoom: {Math.round(zoom * 100)}%</span>
+          <span className="text-amber-300">Speed: {speed}x</span>
         </div>
 
-        {/* Color Legend */}
         <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-2.5 text-[10px] font-mono bg-slate-950/90 px-2.5 py-1 rounded-md border border-slate-800">
           <span className="flex items-center gap-1 text-slate-300"><span className="w-2.5 h-2.5 rounded-sm bg-slate-500"></span> Raw Stock</span>
           <span className="flex items-center gap-1 text-teal-300"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500"></span> Machined Area</span>
@@ -710,7 +691,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         </div>
       </div>
 
-      {/* Live Coordinate Readout */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 space-y-1.5">
         <div className="flex items-center justify-between text-xs font-mono">
           <span className="text-cyan-300 font-bold">

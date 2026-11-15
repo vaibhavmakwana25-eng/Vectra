@@ -22,6 +22,13 @@ const MACHINING_STAGES = [
   'Chamfering Pass'
 ];
 
+const TURN_STAGES = [
+  'Rough + Finish Combined',
+  'Roughing Only (Dia & Len Leave)',
+  'Finish Pass Only',
+  'Chamfering Pass'
+];
+
 const MILL_AREA_TYPES = [
   'Blind Area (Solid Stock)',
   'Through Area (Open)',
@@ -38,6 +45,44 @@ const TURN_AREA_TYPES = [
 const COMP_MODES = [
   'G41 (Left Climb Comp)',
   'G42 (Right Conv Comp)'
+];
+
+const TURNING_INSERTS = [
+  'CNMG 120408 (80° Diamond Rough/Finish)',
+  'WNMG 080408 (80° Trigon Economy)',
+  'DNMG 150608 (55° Diamond Profile)',
+  'VNMG 160404 (35° Sharp Finish)',
+  'TNMG 160408 (60° Triangle)',
+  'CCMT 09T304 (80° Positive Boring)',
+  'MGMN 300 (3mm Grooving / Parting)'
+];
+
+const DRILL_TYPES = [
+  'U-Drill (Indexable Insert)',
+  'Solid Carbide Drill',
+  'HSS Twist Drill'
+];
+
+const STANDARD_TAPS = [
+  { label: 'M6 × 1.0 (Standard Coarse)', dia: '6', pitch: '1.0' },
+  { label: 'M8 × 1.25 (Standard Coarse)', dia: '8', pitch: '1.25' },
+  { label: 'M10 × 1.5 (Standard Coarse)', dia: '10', pitch: '1.5' },
+  { label: 'M12 × 1.75 (Standard Coarse)', dia: '12', pitch: '1.75' },
+  { label: 'M14 × 2.0 (Standard Coarse)', dia: '14', pitch: '2.0' },
+  { label: 'M16 × 2.0 (Standard Coarse)', dia: '16', pitch: '2.0' },
+  { label: 'M20 × 2.5 (Standard Coarse)', dia: '20', pitch: '2.5' },
+  { label: 'M24 × 3.0 (Standard Coarse)', dia: '24', pitch: '3.0' }
+];
+
+const STANDARD_THREADS = [
+  { label: 'M12 × 1.75 (ISO Standard)', dia: '12', pitch: '1.75' },
+  { label: 'M16 × 2.0 (ISO Standard)', dia: '16', pitch: '2.0' },
+  { label: 'M20 × 2.5 (ISO Standard)', dia: '20', pitch: '2.5' },
+  { label: 'M24 × 3.0 (ISO Standard)', dia: '24', pitch: '3.0' },
+  { label: 'M30 × 3.5 (ISO Standard)', dia: '30', pitch: '3.5' },
+  { label: 'M36 × 4.0 (ISO Standard)', dia: '36', pitch: '4.0' },
+  { label: 'M42 × 4.5 (ISO Standard)', dia: '42', pitch: '4.5' },
+  { label: 'M48 × 5.0 (ISO Standard)', dia: '48', pitch: '5.0' }
 ];
 
 function classifyTemplate(domainKey, name) {
@@ -95,14 +140,30 @@ function generateProcessHeader(controller, domainKey, operation, workSide, mfgCf
   const isS = controller === 'Siemens';
   const c = (t) => (isS ? `; ${t}` : `(${t})`);
   const gComp = mfgCfg.compMode.startsWith('G42') ? 'G42' : 'G41';
+
   const lines = [
-    c(`WORKPIECE: ${domainKey === 'Turning' ? `RAW OD=${mfgCfg.stockX}MM, FIN=${mfgCfg.stockY}MM, LEN=${mfgCfg.stockZ}MM` : `STOCK ${mfgCfg.stockX}X${mfgCfg.stockY}X${mfgCfg.stockZ}MM, DEPTH=${mfgCfg.featureDepth}MM`}`),
-    c(`AREA: ${mfgCfg.areaType} | STAGE: ${mfgCfg.machiningStage}`),
-    c(`TOOL & COMP: DIA ${mfgCfg.toolDia}MM (${mfgCfg.toolFlutes}FL, L=${mfgCfg.toolLength}MM) | G43 H01 + ${gComp} D01`),
-    c(`FINISH LEAVE: WALL=${mfgCfg.wallAllowance}MM | BOTTOM=${mfgCfg.bottomAllowance}MM`)
+    c(`WORKPIECE: ${domainKey === 'Turning' ? `RAW OD=${mfgCfg.stockX}MM, FIN=${mfgCfg.stockY}MM, LEN=${mfgCfg.stockZ}MM, STICKOUT=${mfgCfg.chuckStickout}MM` : `STOCK ${mfgCfg.stockX}X${mfgCfg.stockY}X${mfgCfg.stockZ}MM, DEPTH=${mfgCfg.featureDepth}MM`}`),
+    c(`CONDITION: ${mfgCfg.areaType} | STAGE: ${mfgCfg.machiningStage}`)
   ];
+
+  if (domainKey === 'Turning') {
+    if (operation === 'Drilling') {
+      lines.push(c(`DRILL DATA: ${mfgCfg.drillType} | DIA=${mfgCfg.drillDia}MM | PECK Q=${mfgCfg.peckDepth}MM`));
+    } else if (operation === 'Tapping') {
+      lines.push(c(`TAP DATA: ${mfgCfg.tapStandard} | M${mfgCfg.tapDia} X PITCH ${mfgCfg.tapPitch}MM`));
+    } else if (operation === 'Threading') {
+      lines.push(c(`THREAD DATA: ${mfgCfg.threadStandard} | M${mfgCfg.threadDia} X PITCH ${mfgCfg.threadPitch}MM | AUTO HEIGHT H=${mfgCfg.threadHeight}MM`));
+    } else {
+      lines.push(c(`INSERT & COMP: ${mfgCfg.insertType} | NOSE R=${mfgCfg.noseRadius}MM | ${gComp}`));
+    }
+    lines.push(c(`TURNING FINISH LEAVE: DIA X=${mfgCfg.diaFinishStock}MM | LENGTH Z=${mfgCfg.lenFinishStock}MM`));
+  } else {
+    lines.push(c(`TOOL & COMP: DIA ${mfgCfg.toolDia}MM (${mfgCfg.toolFlutes}FL, L=${mfgCfg.toolLength}MM) | G43 H01 + ${gComp} D01`));
+    lines.push(c(`FINISH LEAVE: WALL=${mfgCfg.wallAllowance}MM | BOTTOM=${mfgCfg.bottomAllowance}MM`));
+  }
+
   if (mfgCfg.machiningStage === 'Chamfering Pass') {
-    lines.push(c(`CHAMFER TOOL: DIA ${mfgCfg.chamferDia}MM | ${mfgCfg.chamferAngle} DEG | C${mfgCfg.chamferSize}MM | G43 H03 + ${gComp} D03`));
+    lines.push(c(`CHAMFER TOOL: DIA ${mfgCfg.chamferDia}MM | ${mfgCfg.chamferAngle} DEG | C${mfgCfg.chamferSize}MM`));
   }
   return lines.join('\n');
 }
@@ -114,92 +175,183 @@ function adaptCodeForMode(baseCode, mode, controller, domainKey, operation, work
   const header = generateProcessHeader(controller, domainKey, operation, workSide, mfgCfg);
   const stage = mfgCfg.machiningStage;
   const gComp = mfgCfg.compMode.startsWith('G42') ? 'G42' : 'G41';
-  const isSpigot = workSide.toUpperCase().includes('SPIGOT');
-  const isRect = workSide.toUpperCase().includes('RECTANGULAR');
+  const isID = workSide === 'ID';
 
-  // 1. Dedicated Wall Finish / Wall + Bottom Finish with G43 H02 & G41/G42 D02
-  if (stage === 'Wall Finish Only' || stage === 'Wall + Bottom Finish') {
-    const finDepth = stage === 'Wall Finish Only'
-      ? -(Number(mfgCfg.featureDepth) - Number(mfgCfg.bottomAllowance)).toFixed(2)
-      : -Number(mfgCfg.featureDepth).toFixed(2);
-    const contourBlock = isRect
-      ? `${gComp} D02 G01 X${isSpigot ? '22.0' : '26.0'} Y0.0 F380.0\nG01 Y${isSpigot ? '14.0' : '16.0'}\nG01 X-${isSpigot ? '22.0' : '26.0'}\nG01 Y-${isSpigot ? '14.0' : '16.0'}\nG01 X${isSpigot ? '22.0' : '26.0'}\nG01 Y0.0\nG40 G01 X0.0 Y0.0`
-      : `${gComp} D02 G01 X${isSpigot ? '20.0' : '22.0'} Y0.0 F380.0\n${isSpigot ? 'G02 I-20.0' : 'G03 I-22.0'}\nG40 G01 X0.0 Y0.0`;
+  // Dedicated Threading Program with Auto-Calculated Thread Height H
+  if (domainKey === 'Turning' && operation === 'Threading') {
+    const thDia = Number(mfgCfg.threadDia || 24);
+    const thPitch = Number(mfgCfg.threadPitch || 3.0);
+    const thH = Number(mfgCfg.threadHeight || (0.61343 * thPitch).toFixed(3));
+    const minorDia = isID ? (thDia + thH * 2).toFixed(3) : (thDia - thH * 2).toFixed(3);
+    const pHeightMicron = Math.round(thH * 1000);
+    const lenZ = Math.min(35, Number(mfgCfg.stockZ || 45) - 5);
 
     if (isSiemens) {
       return `${header}
-; SIEMENS ${stage.toUpperCase()} (${gComp} CUTTER COMP ACTIVE)
-G21 G17 G90 G94 G40
-G75 Z0
-T="FIN_CUTTER_D${mfgCfg.toolDia}" D1
-M6
-G54 G00 X${isSpigot ? '-35' : '0'} Y0
-S3200 M3 M8
-G00 Z5
-G01 Z=${finDepth} F180
-${stage === 'Wall + Bottom Finish' && !isSpigot ? `; BOTTOM FLOOR WIPE\nG01 X14 Y0 F420\nG03 I-14 J0\n` : `; WALL FINISH ONLY\n`}${contourBlock.replace(' D02', '')}
-G00 Z50 M9
+; SIEMENS CYCLE97 THREADING (AUTO HEIGHT H=${thH}MM)
+G21 G90 G95 G40
+G75 X0 Z0
+T="THREAD_TOOL" D1
+G97 S800 M3
+G00 X${isID ? thDia - 6 : thDia + 5} Z5 M8
+CYCLE97(${thPitch}, 0, 0, -${lenZ}, ${thDia}, ${thDia}, 5, 2, ${thH}, 0.05, 30, 0, 6, 1, 3, 1)
+G75 X0 Z0 M9
 M5
 M30`;
     }
+    return `O7601 (${controller.toUpperCase()} G76 THREADING - M${thDia}x${thPitch} AUTO H=${thH}MM)
+${header}
+G21 G40 G99
+G28 U0. W0.
+T0404 (60 DEG THREADING INSERT)
+G97 S800 M03
+G00 X${isID ? (thDia - 6).toFixed(1) : (thDia + 5).toFixed(1)} Z5.0 M08
+G76 P020060 Q100 R0.05
+G76 X${minorDia} Z-${lenZ}.0 P${pHeightMicron} Q250 F${thPitch}
+G28 U0. W0. M09
+M05
+M30`;
+  }
+
+  // Dedicated Tapping Program in Turning / VTL
+  if (domainKey === 'Turning' && operation === 'Tapping') {
+    const tDia = mfgCfg.tapDia || 10;
+    const tPitch = mfgCfg.tapPitch || 1.5;
+    const lenZ = Math.min(25, Number(mfgCfg.stockZ || 45) - 10);
+    if (isSiemens) {
+      return `${header}
+; SIEMENS RIGID TAPPING M${tDia} X ${tPitch}
+G21 G90 G95 G40
+G75 X0 Z0
+T="TAP_M${tDia}" D1
+G00 X0 Z5 M8
+CYCLE84(5, 0, 2, -${lenZ}, , 0, 3, , ${tPitch}, 0, 400, 400)
+G75 X0 Z0 M9
+M5
+M30`;
+    }
+    return `O8401 (${controller.toUpperCase()} RIGID TAPPING M${tDia} X ${tPitch})
+${header}
+G21 G40 G99
+G28 U0. W0.
+T0505 (TAP M${tDia} PITCH ${tPitch})
+G97 S400 M03
+G00 X0.0 Z5.0 M08
+M29 S400
+G84 Z-${lenZ}.0 R3.0 F${tPitch}
+G80
+G28 U0. W0. M09
+M05
+M30`;
+  }
+
+  // Dedicated Drilling Program in Turning / VTL
+  if (domainKey === 'Turning' && operation === 'Drilling') {
+    const dDia = mfgCfg.drillDia || 16;
+    const peckMicron = Math.round(Number(mfgCfg.peckDepth || 10) * 1000);
+    const lenZ = Math.min(40, Number(mfgCfg.stockZ || 45));
+    if (isSiemens) {
+      return `${header}
+; SIEMENS CENTER DRILLING DIA ${dDia}MM
+G21 G90 G95 G40
+G75 X0 Z0
+T="DRILL_D${dDia}" D1
+G97 S1200 M3
+G00 X0 Z5 M8
+CYCLE83(5, 0, 2, -${lenZ}, 0, -${mfgCfg.peckDepth || 10}, , 0, , , 1, 1)
+G75 X0 Z0 M9
+M5
+M30`;
+    }
+    return `O7401 (${controller.toUpperCase()} G74 PECK DRILLING DIA ${dDia}MM)
+${header}
+G21 G40 G99
+G28 U0. W0.
+T0303 (${mfgCfg.drillType} DIA ${dDia}MM)
+G97 S1200 M03
+G00 X0.0 Z5.0 M08
+G74 R1.0
+G74 Z-${lenZ}.0 Q${peckMicron} F0.12
+G28 U0. W0. M09
+M05
+M30`;
+  }
+
+  if (stage === 'Wall Finish Only' || stage === 'Wall + Bottom Finish' || stage === 'Finish Pass Only') {
+    if (domainKey === 'Turning') {
+      const finX = mfgCfg.stockY || 32;
+      const finZ = mfgCfg.stockZ || 45;
+      if (isSiemens) {
+        return `${header}
+; SIEMENS TURNING FINISH PASS (${gComp})
+G21 G90 G95 G40
+G75 X0 Z0
+T="FIN_INSERT" D1
+G96 S240 LIMS=3000 M3
+G00 X${isID ? Number(finX) - 4 : Number(finX) + 4} Z2 M8
+${gComp} G01 X${finX} Z0 F0.12
+G01 Z-${finZ}
+G40 G00 X${isID ? Number(finX) - 6 : Number(finX) + 6} Z10 M9
+M5
+M30`;
+      }
+      return `O7001 (${controller.toUpperCase()} TURNING FINISH PASS - ${gComp})
+${header}
+G21 G40 G99
+G28 U0. W0.
+T0202 (${mfgCfg.insertType})
+G50 S3000
+G96 S240 M03
+G00 X${isID ? Number(finX) - 4 : Number(finX) + 4}.0 Z2.0 M08
+${gComp} G01 X${finX}.0 Z0.0 F0.12
+G01 Z-${finZ}.0
+G40 G00 X${isID ? Number(finX) - 6 : Number(finX) + 6}.0 Z10.0 M09
+G28 U0. W0.
+M05
+M30`;
+    }
+
+    const finDepth = stage === 'Wall Finish Only'
+      ? -(Number(mfgCfg.featureDepth) - Number(mfgCfg.bottomAllowance)).toFixed(2)
+      : -Number(mfgCfg.featureDepth).toFixed(2);
     return `O4101 (${controller.toUpperCase()} ${stage.toUpperCase()} - G43 & ${gComp})
 ${header}
 G21 G17 G40 G49 G80 G90
 G91 G28 Z0.0
 T02 M06 (FINISH CUTTER DIA ${mfgCfg.toolDia}MM ${mfgCfg.toolFlutes}FL)
-G90 G54 G00 X${isSpigot ? '-35.0' : '0.0'} Y0.0
+G90 G54 G00 X0.0 Y0.0
 S3200 M03
 G43 H02 Z5.0 M08
 G01 Z${finDepth} F180.0
-${stage === 'Wall + Bottom Finish' && !isSpigot ? `(BOTTOM FLOOR FINISH WIPE)\nG01 X14.0 Y0.0 F420.0\nG03 I-14.0\n` : `(WALL ONLY - BOTTOM ALLOWANCE ${mfgCfg.bottomAllowance}MM KEPT)\n`}(${gComp} CUTTER RADIUS COMPENSATION ACTIVE)
-${contourBlock}
+${gComp} D02 G01 X22.0 Y0.0 F380.0
+G03 I-22.0
+G40 G01 X0.0 Y0.0
 G00 Z50.0 M09
 G91 G28 Z0.0
 M05
 M30`;
   }
 
-  // 2. Dedicated Chamfering Pass with G43 H03 & G41/G42 D03
   if (stage === 'Chamfering Pass') {
     const cDepth = -(Number(mfgCfg.chamferSize) + 0.3).toFixed(2);
-    const chContour = isRect
-      ? `${gComp} D03 G01 X${isSpigot ? '21.5' : '26.5'} Y0.0 F450.0\nG01 Y${isSpigot ? '13.5' : '16.5'}\nG01 X-${isSpigot ? '21.5' : '26.5'}\nG01 Y-${isSpigot ? '13.5' : '16.5'}\nG01 X${isSpigot ? '21.5' : '26.5'}\nG01 Y0.0\nG40 G01 X${isSpigot ? '-35.0' : '0.0'} Y0.0`
-      : `${gComp} D03 G01 X${isSpigot ? '19.5' : '22.5'} Y0.0 F450.0\n${isSpigot ? 'G02 I-19.5' : 'G03 I-22.5'}\nG40 G01 X${isSpigot ? '-35.0' : '0.0'} Y0.0`;
-
-    if (isSiemens) {
-      return `${header}
-; SIEMENS CHAMFERING PASS (C${mfgCfg.chamferSize}MM - ${gComp})
-G21 G17 G90 G94 G40
-G75 Z0
-T="CHAMFER_D${mfgCfg.chamferDia}_${mfgCfg.chamferAngle}DEG" D1
-M6
-G54 G00 X${isSpigot ? '-35' : '0'} Y0
-S3600 M3 M8
-G00 Z5
-G01 Z=${cDepth} F250
-${chContour.replace(' D03', '')}
-G00 Z50 M9
-M5
-M30`;
-    }
     return `O4201 (${controller.toUpperCase()} CHAMFERING PASS C${mfgCfg.chamferSize}MM - G43 & ${gComp})
 ${header}
 G21 G17 G40 G49 G80 G90
 G91 G28 Z0.0
 T03 M06 (CHAMFER MILL DIA ${mfgCfg.chamferDia}MM ${mfgCfg.chamferAngle}DEG)
-G90 G54 G00 X${isSpigot ? '-35.0' : '0.0'} Y0.0
+G90 G54 G00 X0.0 Y0.0
 S3600 M03
 G43 H03 Z5.0 M08
 G01 Z${cDepth} F250.0
-(${gComp} CHAMFER CUTTER RADIUS COMPENSATION)
-${chContour}
+${gComp} D03 G01 X22.5 Y0.0 F450.0
+G03 I-22.5
+G40 G01 X0.0 Y0.0
 G00 Z50.0 M09
 G91 G28 Z0.0
 M05
 M30`;
   }
 
-  // 3. Macro Program with G43 & G41/G42 Compensation
   if (mode === 'Macro Program (Custom Variables)') {
     if (isSiemens) {
       if (domainKey === 'Turning') {
@@ -210,23 +362,24 @@ R2=${mfgCfg.stockY}   ; FINAL DIAMETER
 R3=1.5   ; RADIAL DEPTH OF CUT
 R4=-${mfgCfg.stockZ}  ; TARGET Z LENGTH
 R5=0.25  ; FEED RATE MM/REV
-R6=${mfgCfg.wallAllowance}  ; FINISH STOCK ALLOWANCE
+R6=${mfgCfg.diaFinishStock}  ; DIA FINISH LEAVE X
+R7=${mfgCfg.lenFinishStock}  ; LEN FINISH LEAVE Z
 G21 G90 G95 G40
 G75 X0 Z0
-T="CNMG_ROUGH" D1
+T="ROUGH_INSERT" D1
 G96 S180 LIMS=2500 M3
 R10=R1
 LOOP_CUT:
 R10=R10-(R3*2)
-IF R10<(R2+(R6*2))
-  R10=R2+(R6*2)
+IF R10<(R2+R6)
+  R10=R2+R6
 ENDIF
 G00 X=R10+2 Z2 M8
 ${gComp} G01 X=R10 F=R5
-G01 Z=R4
+G01 Z=R4+R7
 G40 G00 X=R10+3
 G00 Z2
-IF R10>(R2+(R6*2)) GOTOB LOOP_CUT
+IF R10>(R2+R6) GOTOB LOOP_CUT
 G75 X0 Z0 M9
 M5
 M30`;
@@ -269,7 +422,8 @@ ${header}
 #103 = 1.5   (RADIAL DEPTH OF CUT)
 #104 = -${mfgCfg.stockZ} (TARGET Z LENGTH)
 #105 = 0.25  (FEED MM PER REV)
-#106 = ${mfgCfg.wallAllowance}  (FINISH STOCK ALLOWANCE)
+#106 = ${mfgCfg.diaFinishStock}  (DIA FINISH LEAVE X)
+#107 = ${mfgCfg.lenFinishStock}  (LEN FINISH LEAVE Z)
 G21 G40 G99
 G28 U0. W0.
 T0101
@@ -278,13 +432,13 @@ G96 S180 M03
 #110 = #101
 N10 (LOOP START)
 #110 = #110 - [#103 * 2.0]
-IF [#110 LT [#102 + [#106 * 2.0]]] THEN #110 = [#102 + [#106 * 2.0]]
+IF [#110 LT [#102 + #106]] THEN #110 = [#102 + #106]
 G00 X[#110 + 2.0] Z2.0 M08
 ${gComp} G01 X#110 F#105
-G01 Z#104
+G01 Z[#104 + #107]
 G40 G00 X[#110 + 3.0]
 G00 Z2.0
-IF [#110 GT [#102 + [#106 * 2.0]]] GOTO10
+IF [#110 GT [#102 + #106]] GOTO10
 G00 X100.0 Z100.0 M09
 G28 U0. W0.
 M05
@@ -320,33 +474,7 @@ M30`;
     }
   }
 
-  // Inject G42 / G43 compensation note and G41->selected gComp into Canned / ISO templates
   const compensatedBase = baseCode.replace(/\bG41\b/g, gComp);
-  if (mode === 'ISO G-Code and M-Code') {
-    if (domainKey === 'Turning') {
-      return `${header}
-${cmt(`ISO G-CODE & M-CODE (${controller.toUpperCase()} - ${gComp} COMP)`)}
-${isSiemens ? 'G21 G90 G95 G40\nG75 X0 Z0\nT="ISO_TOOL" D1\nG96 S200 LIMS=2800 M3' : 'O3001 (ISO LINEAR WITH G42 NOSE COMP)\nG21 G40 G99\nG28 U0. W0.\nT0101\nG50 S2800\nG96 S200 M03'}
-G00 X${Number(mfgCfg.stockX) + 2}.0 Z2.0 M08
-${gComp} G01 X${mfgCfg.stockY}.0 Z0.0 F0.15
-G01 Z-${mfgCfg.stockZ}.0
-G40 G00 X${Number(mfgCfg.stockX) + 4}.0 Z10.0 M09
-${isSiemens ? 'G75 X0 Z0\nM5\nM30' : 'G28 U0. W0.\nM05\nM30'}`;
-    }
-    return `${header}
-${cmt(`ISO G-CODE & M-CODE MILLING (G43 H01 & ${gComp} D01)`)}
-${isSiemens ? `G21 G17 G90 G94 G40\nG75 Z0\nT="ENDMILL_D${mfgCfg.toolDia}" D1\nM6\nG54 G00 X0 Y0\nS2400 M3 M8\nG00 Z10` : `O3002 (ISO MILLING WITH G43 & ${gComp})\nG21 G17 G40 G49 G80 G90\nG91 G28 Z0.0\nT01 M06\nG90 G54 G00 X0.0 Y0.0\nS2400 M03\nG43 H01 Z10.0 M08`}
-G01 Z-${mfgCfg.featureDepth}.0 F200.0
-${gComp} D01 X25.0 Y0.0 F450.0
-G01 Y40.0
-G02 X35.0 Y50.0 R10.0
-G01 X70.0
-G01 Y0.0
-G40 G01 X0.0 Y0.0
-G00 Z50.0 M09
-${isSiemens ? 'G75 Z0\nM5\nM30' : 'G91 G28 Z0.0\nM05\nM30'}`;
-  }
-
   return `${header}\n${compensatedBase}`;
 }
 
@@ -368,24 +496,54 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   const [code, setCode] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Tooling, Workpiece & Strategy States
+  // Milling Tool States
   const [toolDia, setToolDia] = useState('12');
   const [toolFlutes, setToolFlutes] = useState('4');
   const [toolLength, setToolLength] = useState('35');
-  const [compMode, setCompMode] = useState(COMP_MODES[1]); // G42 default
+  const [compMode, setCompMode] = useState(COMP_MODES[1]);
+
+  // Turning Tool / Insert / Drill / Tap / Thread States
+  const [insertType, setInsertType] = useState(TURNING_INSERTS[0]);
+  const [noseRadius, setNoseRadius] = useState('0.8');
+
+  const [drillType, setDrillType] = useState(DRILL_TYPES[0]);
+  const [drillDia, setDrillDia] = useState('16');
+  const [peckDepth, setPeckDepth] = useState('8');
+
+  const [tapStandard, setTapStandard] = useState('Standard Metric Coarse');
+  const [selectedStdTap, setSelectedStdTap] = useState(STANDARD_TAPS[2].label);
+  const [tapDia, setTapDia] = useState('10');
+  const [tapPitch, setTapPitch] = useState('1.5');
+
+  const [threadStandard, setThreadStandard] = useState('Standard Metric ISO');
+  const [selectedStdThread, setSelectedStdThread] = useState(STANDARD_THREADS[3].label);
+  const [threadDia, setThreadDia] = useState('24');
+  const [threadPitch, setThreadPitch] = useState('3.0');
+
+  // Auto-calculated Thread Single Depth Height H = 0.61343 * Pitch
+  const threadHeight = useMemo(() => {
+    const p = Number(threadPitch) || 0;
+    return (0.61343 * p).toFixed(3);
+  }, [threadPitch]);
+
+  // Chamfer Tool States
   const [chamferDia, setChamferDia] = useState('10');
   const [chamferAngle, setChamferAngle] = useState('90');
   const [chamferSize, setChamferSize] = useState('0.5');
 
-  const [stockX, setStockX] = useState('100');
-  const [stockY, setStockY] = useState('80');
-  const [stockZ, setStockZ] = useState('30');
+  // Workpiece Stock States
+  const [stockX, setStockX] = useState('50');
+  const [stockY, setStockY] = useState('32');
+  const [stockZ, setStockZ] = useState('45');
   const [featureDepth, setFeatureDepth] = useState('10');
   const [chuckStickout, setChuckStickout] = useState('65');
   const [rawIdDia, setRawIdDia] = useState('20');
 
+  // Allowances & Stage
   const [areaType, setAreaType] = useState(TURN_AREA_TYPES[0]);
-  const [machiningStage, setMachiningStage] = useState(MACHINING_STAGES[0]);
+  const [machiningStage, setMachiningStage] = useState(TURN_STAGES[0]);
+  const [diaFinishStock, setDiaFinishStock] = useState('0.5');
+  const [lenFinishStock, setLenFinishStock] = useState('0.2');
   const [wallAllowance, setWallAllowance] = useState('0.3');
   const [bottomAllowance, setBottomAllowance] = useState('0.2');
 
@@ -398,6 +556,18 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       toolFlutes,
       toolLength,
       compMode,
+      insertType,
+      noseRadius,
+      drillType,
+      drillDia,
+      peckDepth,
+      tapStandard,
+      tapDia,
+      tapPitch,
+      threadStandard,
+      threadDia,
+      threadPitch,
+      threadHeight,
       chamferDia,
       chamferAngle,
       chamferSize,
@@ -409,6 +579,8 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       rawIdDia,
       areaType,
       machiningStage,
+      diaFinishStock,
+      lenFinishStock,
       wallAllowance,
       bottomAllowance
     }),
@@ -417,6 +589,18 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       toolFlutes,
       toolLength,
       compMode,
+      insertType,
+      noseRadius,
+      drillType,
+      drillDia,
+      peckDepth,
+      tapStandard,
+      tapDia,
+      tapPitch,
+      threadStandard,
+      threadDia,
+      threadPitch,
+      threadHeight,
       chamferDia,
       chamferAngle,
       chamferSize,
@@ -428,6 +612,8 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       rawIdDia,
       areaType,
       machiningStage,
+      diaFinishStock,
+      lenFinishStock,
       wallAllowance,
       bottomAllowance
     ]
@@ -499,11 +685,13 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       setStockZ(cat === 'VTL' ? '120' : '45');
       setChuckStickout(cat === 'VTL' ? '140' : '65');
       setAreaType(TURN_AREA_TYPES[0]);
+      setMachiningStage(TURN_STAGES[0]);
     } else {
       setStockX('100');
       setStockY('80');
       setStockZ('30');
       setAreaType(MILL_AREA_TYPES[0]);
+      setMachiningStage(MACHINING_STAGES[0]);
     }
   };
 
@@ -599,7 +787,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
           </div>
         </div>
 
-        {/* LINE 2: Machine Model | Operation | OD / ID / Pocket / Spigot Selection */}
+        {/* LINE 2: Machine Model | Operation | OD / ID / Face or Pocket / Spigot */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="block text-[11px] font-semibold text-slate-400 mb-1">Machine Model</label>
@@ -629,7 +817,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
 
           <div>
             <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-              {domainKey === 'Turning' ? 'Machining Side (OD / ID)' : 'Feature Shape (Pocket / Spigot)'}
+              {domainKey === 'Turning' ? 'Machining Side (OD / ID / Face)' : 'Feature Shape (Pocket / Spigot)'}
             </label>
             <select
               value={workSide}
@@ -659,17 +847,21 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
           </select>
         </div>
 
-        {/* Tooling, Workpiece Stock, Allowances & Conditional Chamfer Panel */}
+        {/* Dynamic Operation-Aware Tooling, Workpiece Stock & Allowances Panel */}
         <div className="bg-slate-950/90 border border-amber-500/35 rounded-xl p-3.5 space-y-3">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
               <Wrench className="w-4 h-4" />
-              <span>Tool Data (G43 + G41/G42), Workpiece Stock & Pass Strategy</span>
+              <span>
+                {domainKey === 'Turning'
+                  ? `${machineType} • ${operation} Tooling, Stock & Finish Allowance`
+                  : 'Milling Cutter Data (G43 + G41/G42), Stock & Pass Strategy'}
+              </span>
             </div>
             <span className="text-[10px] font-mono text-slate-400">3D Sim & G-Code Linked</span>
           </div>
 
-          {/* Row A: Strategy, Area Type, Wall & Bottom Finish Allowance */}
+          {/* Row A: Strategy, Stock Condition, Finish Stock (Dia X & Len Z for Turning vs Wall & Bottom for Milling) */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
             <div>
               <label className="block text-[10px] font-semibold text-amber-300 mb-1">Machining Pass / Program</label>
@@ -678,7 +870,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                 onChange={(e) => setMachiningStage(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:border-amber-400 outline-none"
               >
-                {MACHINING_STAGES.map((st) => (
+                {(domainKey === 'Turning' ? TURN_STAGES : MACHINING_STAGES).map((st) => (
                   <option key={st} value={st}>{st}</option>
                 ))}
               </select>
@@ -699,27 +891,53 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               </select>
             </div>
 
-            <div>
-              <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Wall Finish Leave (mm)</label>
-              <input
-                type="number"
-                step="0.05"
-                value={wallAllowance}
-                onChange={(e) => setWallAllowance(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:border-cyan-400 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Bottom Finish Leave (mm)</label>
-              <input
-                type="number"
-                step="0.05"
-                value={bottomAllowance}
-                onChange={(e) => setBottomAllowance(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:border-cyan-400 outline-none"
-              />
-            </div>
+            {domainKey === 'Turning' ? (
+              <>
+                <div>
+                  <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Dia Finish Stock X (mm)</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={diaFinishStock}
+                    onChange={(e) => setDiaFinishStock(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:border-cyan-400 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Length Finish Stock Z (mm)</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={lenFinishStock}
+                    onChange={(e) => setLenFinishStock(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:border-cyan-400 outline-none"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Wall Finish Leave (mm)</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={wallAllowance}
+                    onChange={(e) => setWallAllowance(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:border-cyan-400 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Bottom Finish Leave (mm)</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={bottomAllowance}
+                    onChange={(e) => setBottomAllowance(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:border-cyan-400 outline-none"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Row B: Workpiece Stock Dimensions */}
@@ -750,7 +968,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
 
             <div>
               <label className="block text-[10px] font-semibold text-slate-400 mb-1">
-                {domainKey === 'Turning' ? 'Part Length Z (mm)' : 'Workpiece Height Z (mm)'}
+                {domainKey === 'Turning' ? 'Part Cut Length Z (mm)' : 'Workpiece Height Z (mm)'}
               </label>
               <input
                 type="number"
@@ -763,7 +981,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
             {domainKey === 'Turning' ? (
               <div>
                 <label className="block text-[10px] font-semibold text-amber-300 mb-1">
-                  {workSide === 'ID' ? 'Raw ID Dia (mm)' : 'Chuck Stickout (mm)'}
+                  {workSide === 'ID' ? 'Raw ID Bore Dia (mm)' : 'Chuck Stickout (mm)'}
                 </label>
                 <input
                   type="number"
@@ -785,53 +1003,267 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
             )}
           </div>
 
-          {/* Row C: Main Cutter Data + G41/G42 Compensation Mode */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <div>
-              <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Cutter Dia (mm)</label>
-              <input
-                type="number"
-                value={toolDia}
-                onChange={(e) => setToolDia(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-              />
-            </div>
+          {/* Row C: Dynamic Operation-Specific Tooling Cascade */}
+          {domainKey === 'Turning' ? (
+            <>
+              {operation === 'Drilling' && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-slate-800">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Drill Tool Type</label>
+                    <select
+                      value={drillType}
+                      onChange={(e) => setDrillType(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    >
+                      {DRILL_TYPES.map((dt) => (
+                        <option key={dt} value={dt}>{dt}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Drill Diameter (mm)</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={drillDia}
+                      onChange={(e) => setDrillDia(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Peck Depth Q (mm)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={peckDepth}
+                      onChange={(e) => setPeckDepth(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    />
+                  </div>
+                </div>
+              )}
 
-            <div>
-              <label className="block text-[10px] font-semibold text-emerald-300 mb-1">No. of Flutes</label>
-              <input
-                type="number"
-                value={toolFlutes}
-                onChange={(e) => setToolFlutes(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-              />
-            </div>
+              {operation === 'Tapping' && (
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-800">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Tap Standard Mode</label>
+                    <select
+                      value={tapStandard}
+                      onChange={(e) => setTapStandard(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    >
+                      <option value="Standard Metric Coarse">Standard Metric Coarse</option>
+                      <option value="Non-Standard / Fine Tap">Non-Standard / Fine Tap</option>
+                    </select>
+                  </div>
+                  {tapStandard === 'Standard Metric Coarse' ? (
+                    <div>
+                      <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Select Standard Tap</label>
+                      <select
+                        value={selectedStdTap}
+                        onChange={(e) => {
+                          setSelectedStdTap(e.target.value);
+                          const found = STANDARD_TAPS.find((t) => t.label === e.target.value);
+                          if (found) {
+                            setTapDia(found.dia);
+                            setTapPitch(found.pitch);
+                          }
+                        }}
+                        className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                      >
+                        {STANDARD_TAPS.map((t) => (
+                          <option key={t.label} value={t.label}>{t.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-[10px] font-semibold text-amber-300 mb-1">Custom Tap Dia M (mm)</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={tapDia}
+                        onChange={(e) => setTapDia(e.target.value)}
+                        className="w-full bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Tap Size (M)</label>
+                    <input
+                      type="number"
+                      value={tapDia}
+                      onChange={(e) => setTapDia(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Tap Pitch (mm)</label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={tapPitch}
+                      onChange={(e) => setTapPitch(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    />
+                  </div>
+                </div>
+              )}
 
-            <div>
-              <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Flute Length (mm)</label>
-              <input
-                type="number"
-                value={toolLength}
-                onChange={(e) => setToolLength(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-              />
-            </div>
+              {operation === 'Threading' && (
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 pt-2 border-t border-amber-500/30 bg-amber-500/5 p-2.5 rounded-lg">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-amber-300 mb-1">Thread Standard Cascade</label>
+                    <select
+                      value={threadStandard}
+                      onChange={(e) => setThreadStandard(e.target.value)}
+                      className="w-full bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    >
+                      <option value="Standard Metric ISO">Standard Metric ISO</option>
+                      <option value="Non-Standard Pitch">Non-Standard Pitch</option>
+                    </select>
+                  </div>
 
-            <div>
-              <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Cutter Comp (G43 + G41/G42)</label>
-              <select
-                value={compMode}
-                onChange={(e) => setCompMode(e.target.value)}
-                className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-              >
-                {COMP_MODES.map((cm) => (
-                  <option key={cm} value={cm}>{cm}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+                  {threadStandard === 'Standard Metric ISO' ? (
+                    <div>
+                      <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Standard Thread Size</label>
+                      <select
+                        value={selectedStdThread}
+                        onChange={(e) => {
+                          setSelectedStdThread(e.target.value);
+                          const found = STANDARD_THREADS.find((th) => th.label === e.target.value);
+                          if (found) {
+                            setThreadDia(found.dia);
+                            setThreadPitch(found.pitch);
+                          }
+                        }}
+                        className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                      >
+                        {STANDARD_THREADS.map((th) => (
+                          <option key={th.label} value={th.label}>{th.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-[10px] font-semibold text-amber-300 mb-1">Custom Major Dia (mm)</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={threadDia}
+                        onChange={(e) => setThreadDia(e.target.value)}
+                        className="w-full bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                      />
+                    </div>
+                  )}
 
-          {/* Row D: Conditional Chamfer Cascade (ONLY opens when Chamfering Pass is selected!) */}
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Thread Pitch P (mm)</label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={threadPitch}
+                      onChange={(e) => setThreadPitch(e.target.value)}
+                      className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 bg-slate-900 border border-cyan-500/50 rounded-lg px-3 py-1.5 flex flex-col justify-center">
+                    <span className="text-[10px] font-semibold text-cyan-300">Auto-Calculated Thread Height H (0.6134 × P)</span>
+                    <span className="text-xs font-mono font-bold text-emerald-300">
+                      H = {threadHeight} mm  (Fanuc G76 P{Math.round(Number(threadHeight) * 1000)})
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {operation !== 'Drilling' && operation !== 'Tapping' && operation !== 'Threading' && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-slate-800">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Turning / Boring Insert Type</label>
+                    <select
+                      value={insertType}
+                      onChange={(e) => setInsertType(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    >
+                      {TURNING_INSERTS.map((ins) => (
+                        <option key={ins} value={ins}>{ins}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Insert Nose Radius R (mm)</label>
+                    <select
+                      value={noseRadius}
+                      onChange={(e) => setNoseRadius(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    >
+                      <option value="0.2">R0.2 mm (Fine Finish)</option>
+                      <option value="0.4">R0.4 mm (Semi-Finish / Finish)</option>
+                      <option value="0.8">R0.8 mm (Medium Roughing)</option>
+                      <option value="1.2">R1.2 mm (Heavy Roughing)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Tool Nose Comp (G41 / G42)</label>
+                    <select
+                      value={compMode}
+                      onChange={(e) => setCompMode(e.target.value)}
+                      className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                    >
+                      {COMP_MODES.map((cm) => (
+                        <option key={cm} value={cm}>{cm}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-800">
+              <div>
+                <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Cutter Dia (mm)</label>
+                <input
+                  type="number"
+                  value={toolDia}
+                  onChange={(e) => setToolDia(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-emerald-300 mb-1">No. of Flutes</label>
+                <input
+                  type="number"
+                  value={toolFlutes}
+                  onChange={(e) => setToolFlutes(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Flute Length (mm)</label>
+                <input
+                  type="number"
+                  value={toolLength}
+                  onChange={(e) => setToolLength(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Cutter Comp (G43 + G41/G42)</label>
+                <select
+                  value={compMode}
+                  onChange={(e) => setCompMode(e.target.value)}
+                  className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                >
+                  {COMP_MODES.map((cm) => (
+                    <option key={cm} value={cm}>{cm}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Conditional Chamfer Cascade (ONLY opens when Chamfering Pass is selected!) */}
           {showChamferCascade && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-amber-500/30 bg-amber-500/5 p-2.5 rounded-lg">
               <div>
@@ -843,7 +1275,6 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                   className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                 />
               </div>
-
               <div>
                 <label className="block text-[10px] font-semibold text-amber-300 mb-1">Chamfer Tip Angle (°)</label>
                 <input
@@ -853,7 +1284,6 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                   className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                 />
               </div>
-
               <div>
                 <label className="block text-[10px] font-semibold text-amber-300 mb-1">Chamfer Size C (mm)</label>
                 <input
@@ -985,5 +1415,3 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
-
-
