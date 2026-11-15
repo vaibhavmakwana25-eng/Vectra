@@ -836,17 +836,6 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
 
   // Auto-calculated Thread Single Depth Height H = 0.61343 * Pitch
   const threadHeight = useMemo(() => {
-    const p = Number(threadPitch) || 0;
-    
-  // TURN_MILL_SYNC_EFFECT
-  if (operation === 'Turn-Mill' && typeof TURN_MILL_SAMPLE_LIST !== 'undefined') {
-    const activeTm = TURN_MILL_SAMPLE_LIST[Number(selectedTemplateIdx) % TURN_MILL_SAMPLE_LIST.length] || TURN_MILL_SAMPLE_LIST[0];
-    if (activeTm && typeof code === 'string' && !code.includes(activeTm.name.split(' (')[0])) {
-      if (typeof setCode === 'function') setCode(activeTm.code);
-      if (typeof setTitle === 'function') setTitle(activeTm.title || activeTm.name);
-    }
-  }
-
   return (0.61343 * p).toFixed(3);
   }, [threadPitch]);
 
@@ -1051,19 +1040,24 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   };
 
   const handleTemplateChange = (idx) => {
+    const i = Number(idx);
     if (operation === 'Turn-Mill') {
-      const i = Math.max(0, Math.min(TURN_MILL_SAMPLE_LIST.length - 1, Number(valOrIdx ?? 0)));
-      const item = TURN_MILL_SAMPLE_LIST[i] || TURN_MILL_SAMPLE_LIST[0];
-      if (typeof setSelectedTemplateIdx === 'function') setSelectedTemplateIdx(i);
-      if (typeof setTitle === 'function') setTitle(item.title || item.name);
-      if (typeof setCode === 'function') setCode(item.code);
+      const list = Array.isArray(TURN_MILL_SAMPLE_LIST) ? TURN_MILL_SAMPLE_LIST : [];
+      const safeIdx = Number.isFinite(i) && i >= 0 && i < list.length ? i : 0;
+      const item = list[safeIdx];
+      if (item) {
+        if (typeof setSelectedTemplateIdx === 'function') setSelectedTemplateIdx(safeIdx);
+        if (typeof setTitle === 'function') setTitle(item.title || item.name);
+        if (typeof setCode === 'function') setCode(item.code);
+      }
       return;
     }
-    const i = Number(idx);
-    setSelectedTemplateIdx(i);
-    if (filteredTemplates[i]) {
-      setTitle(filteredTemplates[i].name + ' [' + machiningStage + ']');
-      setCode(adaptCodeForMode(filteredTemplates[i].code, programMode, controller, domainKey, operation, workSide, mfgCfg));
+    const item = filteredTemplates[i];
+    if (!item) return;
+    if (typeof setSelectedTemplateIdx === 'function') setSelectedTemplateIdx(i);
+    if (typeof setTitle === 'function') setTitle(item.name);
+    if (typeof setCode === 'function') {
+      setCode(adaptCodeForMode(item.code, programMode, controller, domainKey, operation, workSide, mfgCfg));
     }
   };
 
