@@ -26,13 +26,16 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
     const odProfile = new Array(zSlices + 1).fill(rawOD);
     const idProfile = new Array(zSlices + 1).fill(isID ? Math.max(8, rawID) : 0);
     const passTagProfile = new Array(zSlices + 1).fill('raw');
+    let threadProgressZ = 0;
+    let threadDepthRatio = 0;
+    let faceTrimZ = 0;
 
     const snapshot = (zVal, curDia, rapid, passType, gcode) => {
       const distFromFace = Math.max(0, Math.min(partLen, -zVal));
       const frac = Math.min(1, distFromFace / partLen);
       const sliceIdx = Math.min(zSlices, Math.round(frac * zSlices));
 
-      if (!rapid) {
+      if (!rapid && operation !== 'Threading' && operation !== 'Grooving' && operation !== 'Parting' && !isFace) {
         for (let i = 0; i <= sliceIdx; i++) {
           if (isID) {
             if (curDia >= idProfile[i]) {
@@ -57,6 +60,9 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
         odProfile: [...odProfile],
         idProfile: [...idProfile],
         passTagProfile: [...passTagProfile],
+        threadProgressZ,
+        threadDepthRatio,
+        faceTrimZ,
         curOD: isID ? rawOD : odProfile[Math.max(0, sliceIdx)],
         curID: isID ? idProfile[Math.max(0, sliceIdx)] : 0,
         gcode
@@ -77,6 +83,10 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
           for (let i = 0; i <= sIdx; i++) {
             idProfile[i] = Math.max(idProfile[i], drillDia);
             passTagProfile[i] = 'rough';
+          }
+          if (operation === 'Tapping') {
+            threadProgressZ = Math.max(threadProgressZ, Math.abs(zNow));
+            threadDepthRatio = 1;
           }
           snapshot(zNow, 0, false, 'rough', `G01 Z${zNow.toFixed(1)} F0.12`);
         }
@@ -100,9 +110,12 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
           : majDia - (majDia - minDia) * ratio;
         snapshot(4, safeX, true, 'rapid', `G00 X${safeX.toFixed(1)} Z4.0 (THREAD PASS ${idx + 1}/4)`);
         snapshot(4, px, true, 'rapid', `G00 X${px.toFixed(3)}`);
-        for (let s = 1; s <= 10; s++) {
-          const zStep = -(targetLen * s) / 10;
-          const frac = Math.min(1, Math.abs(zStep) / partLen);
+        for (let s = 1; s <= 12; s++) {
+          const zStep = -(targetLen * s) / 12;
+          const absZ = Math.abs(zStep);
+          threadProgressZ = Math.max(threadProgressZ, absZ);
+          threadDepthRatio = ratio;
+          const frac = Math.min(1, absZ / partLen);
           const sIdx = Math.min(zSlices, Math.round(frac * zSlices));
           for (let i = 0; i <= sIdx; i++) {
             passTagProfile[i] = idx === 3 ? 'finish' : 'rough';
@@ -113,10 +126,11 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       });
       snapshot(16, safeX, true, 'rapid', `G28 U0. W0. M05`);
     } else if (isFace) {
-      [-0.8, -1.6, -2.4].forEach((fz, idx) => {
+      [-1.0, -2.0, -3.0].forEach((fz, idx) => {
         snapshot(fz, rawOD + 3, true, 'rapid', `G00 X${(rawOD + 3).toFixed(1)} Z${fz}`);
         for (let s = 1; s <= 8; s++) {
           const xStep = rawOD - ((rawOD - (isID ? rawID : 0)) * s) / 8;
+          faceTrimZ = Math.abs(fz);
           passTagProfile[0] = idx === 2 ? 'finish' : 'rough';
           snapshot(fz, xStep, false, idx === 2 ? 'finish' : 'rough', `G01 X${xStep.toFixed(1)} Z${fz} F0.15`);
         }
@@ -124,21 +138,24 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       });
       snapshot(16, rawOD + 8, true, 'rapid', `G28 U0. W0. M05`);
     } else if (operation === 'Grooving' || operation === 'Parting') {
-      const cutZ = -Math.min(28, partLen - 5);
-      const targetX = operation === 'Parting' ? 0 : isID ? finOD + 6 : Math.max(12, finOD - 6);
+      const cutZ = -Math.min(26, partLen - 6);
+      const targetX = operation === 'Parting' ? 4 : isID ? finOD + 6 : Math.max(12, finOD - 8);
       const startX = isID ? finOD - 4 : rawOD + 2;
       snapshot(cutZ, startX, true, 'rapid', `G00 X${startX.toFixed(1)} Z${cutZ}`);
-      const gIdx = Math.min(zSlices, Math.round((Math.abs(cutZ) / partLen) * zSlices));
-      for (let s = 1; s <= 8; s++) {
-        const curX = startX + ((targetX - startX) * s) / 8;
-        if (!isID) {
-          odProfile[gIdx] = Math.min(odProfile[gIdx], Math.max(4, curX));
-          if (gIdx + 1 <= zSlices) odProfile[gIdx + 1] = odProfile[gIdx];
-        } else {
-          idProfile[gIdx] = Math.max(idProfile[gIdx], curX);
+      const gIdx = Math.min(zSlices - 3, Math.max(2, Math.round((Math.abs(cutZ) / partLen) * zSlices)));
+      // Create a crisp 4-slice wide groove channel so it is unmistakably visible in 3D!
+      for (let s = 1; s <= 10; s++) {
+        const curX = startX + ((targetX - startX) * s) / 10;
+        for (let w = -1; w <= 2; w++) {
+          const idxW = Math.min(zSlices, Math.max(0, gIdx + w));
+          if (!isID) {
+            odProfile[idxW] = Math.min(odProfile[idxW], Math.max(4, curX));
+          } else {
+            idProfile[idxW] = Math.max(idProfile[idxW], curX);
+          }
+          passTagProfile[idxW] = s >= 8 ? 'finish' : 'rough';
         }
-        passTagProfile[gIdx] = 'rough';
-        snapshot(cutZ, curX, false, 'rough', `G01 X${curX.toFixed(1)} F0.08`);
+        snapshot(cutZ, curX, false, s >= 8 ? 'finish' : 'rough', `G01 X${curX.toFixed(1)} F0.08`);
       }
       snapshot(16, startX + 4, true, 'rapid', `G28 U0. W0. M05`);
     } else if (isID) {
@@ -307,10 +324,20 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
 
-function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, rawRad, stickout, planes) {
+// Renders Real 3D Workpiece with:
+// - Progressive Rough (Blue) & Finish (Green) stepped OD / ID / Groove channels
+// - True 3D Helical/Annular Thread Ridges on OD or ID when Threading/Tapping is active
+// - High-contrast dark bore interior so ID holes are unmistakable even without ½ Section
+function buildSolidVerifyWorkpiece(current, operation, isID, rawOD, rawRad, partLen, stickout, planes) {
   const workGroup = new THREE.Group();
+  const odProfile = current.odProfile || [rawOD];
+  const idProfile = current.idProfile || [0];
+  const passTagProfile = current.passTagProfile || ['raw'];
+  const faceTrim = Math.min(6, (current.faceTrimZ || 0) * 1.4);
+
   const n = odProfile.length - 1;
-  const sliceH = stickout / n;
+  const effStickout = Math.max(12, stickout - faceTrim);
+  const sliceH = effStickout / n;
 
   const rawMat = new THREE.MeshStandardMaterial({
     color: 0x94a3b8,
@@ -337,6 +364,15 @@ function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, 
     clippingPlanes: planes,
     side: THREE.DoubleSide
   });
+  const threadRidgeMat = new THREE.MeshStandardMaterial({
+    color: 0xf59e0b,
+    emissive: 0x92400e,
+    emissiveIntensity: 0.22,
+    metalness: 0.78,
+    roughness: 0.2,
+    clippingPlanes: planes,
+    side: THREE.DoubleSide
+  });
 
   let startIdx = 0;
   while (startIdx < n) {
@@ -356,7 +392,7 @@ function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, 
 
     const segCount = endIdx - startIdx;
     const segH = segCount * sliceH + 0.06;
-    const yTop = stickout / 2 - startIdx * sliceH;
+    const yTop = stickout / 2 - faceTrim - startIdx * sliceH;
     const yCenter = yTop - segH / 2;
 
     const outerR = Math.max(3, (curOD / Math.max(10, rawOD)) * rawRad);
@@ -380,6 +416,14 @@ function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, 
       const mesh = new THREE.Mesh(extrudeGeo, mat);
       mesh.position.y = yTop;
       workGroup.add(mesh);
+
+      // Dark inner bore lining so ID cavity is super clear from outside as well
+      const boreWall = new THREE.Mesh(
+        new THREE.CylinderGeometry(innerR - 0.1, innerR - 0.1, segH, 36, 1, true),
+        new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6, side: THREE.BackSide, clippingPlanes: planes })
+      );
+      boreWall.position.y = yCenter;
+      workGroup.add(boreWall);
     } else {
       const cylGeo = new THREE.CylinderGeometry(outerR, outerR, segH, 48);
       const mesh = new THREE.Mesh(cylGeo, mat);
@@ -388,6 +432,33 @@ function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, 
     }
 
     startIdx = endIdx;
+  }
+
+  // Real 3D Thread Ridges (V-Rings along machined thread length) for Threading / Tapping
+  const tProgZ = current.threadProgressZ || 0;
+  const tDepthRatio = current.threadDepthRatio || 0;
+  if ((operation === 'Threading' || operation === 'Tapping') && tProgZ > 0.5 && tDepthRatio > 0) {
+    const threadLenWorld = Math.min(effStickout * 0.85, (tProgZ / Math.max(10, partLen)) * (stickout * 0.88));
+    const pitchWorld = 2.1;
+    const ridgeCount = Math.max(1, Math.floor(threadLenWorld / pitchWorld));
+    const ridgeThickness = 0.45 + tDepthRatio * 0.65;
+
+    const baseOD = odProfile[0] || rawOD;
+    const baseID = idProfile[0] || 14;
+    const baseRad = isID || operation === 'Tapping'
+      ? Math.max(2.5, (baseID / Math.max(10, rawOD)) * rawRad - ridgeThickness * 0.7)
+      : Math.max(4, (baseOD / Math.max(10, rawOD)) * rawRad + ridgeThickness * 0.5);
+
+    for (let r = 0; r < ridgeCount; r++) {
+      const yPos = stickout / 2 - faceTrim - 1.2 - r * pitchWorld;
+      const torus = new THREE.Mesh(
+        new THREE.TorusGeometry(baseRad, ridgeThickness, 10, 40),
+        threadRidgeMat
+      );
+      torus.rotation.x = Math.PI / 2;
+      torus.position.y = yPos;
+      workGroup.add(torus);
+    }
   }
 
   return workGroup;
@@ -494,7 +565,6 @@ function buildIsoInsertMesh(insertType = 'CNMG', noseRadius = '0.8', operation =
   return insGroup;
 }
 
-// Final Verified Turret + Vertical Tool Shank + ISO Insert Geometry
 function createOperationTooling(operation, isID, isVTL, discMat, cyanMat, steelShankMat, darkClampMat, insertMat, insertType = 'CNMG', noseRadius = '0.8') {
   const assembly = new THREE.Group();
 
@@ -502,7 +572,6 @@ function createOperationTooling(operation, isID, isVTL, discMat, cyanMat, steelS
   const isInternal = isID || operation === 'Boring' || operation === 'Drilling' || operation === 'Tapping';
 
   if (isVTL) {
-    // VTL: High Horizontal Crown Turret Disc (y = +38 so turret NEVER drops down into job or chuck!)
     const turretCenter = new THREE.Vector3(isInternal ? 16 : 18, 38, 0);
 
     const outerRing = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, 6.5, 36), discMat);
@@ -535,7 +604,6 @@ function createOperationTooling(operation, isID, isVTL, discMat, cyanMat, steelS
       ins.position.set(1.8, 2.2, 0);
       assembly.add(ins);
     } else {
-      // Long Vertical Machined Steel Shank reaching down from VTL BMT Station (y=38) to tip (y=0)
       const shankW = isGroove ? 2.2 : 4.8;
       const shank = new THREE.Mesh(new THREE.BoxGeometry(shankW, 38, 5.2), steelShankMat);
       shank.position.set(2.0, 19, 0);
@@ -550,9 +618,6 @@ function createOperationTooling(operation, isID, isVTL, discMat, cyanMat, steelS
       assembly.add(ins);
     }
   } else {
-    // Horizontal Turning Lathe (Slant-Bed):
-    // - ID: Horizontal Boring Bar along -X from Turret
-    // - OD: Vertical Machined Steel Shank coming straight DOWN from Bottom BMT Station Block!
     if (isInternal) {
       const turretCenter = new THREE.Vector3(36, 0, 0);
       const disc = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 9, 24), discMat);
@@ -583,7 +648,6 @@ function createOperationTooling(operation, isID, isVTL, discMat, cyanMat, steelS
       ins.position.set(1.8, 1.8, 0);
       assembly.add(ins);
     } else {
-      // Turret Disc directly above active OD cut (y = +33) so bottom BMT station (y = +18.5) holds Vertical Shank cleanly!
       const turretCenter = new THREE.Vector3(2.2, 33, -2);
       const disc = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 10, 24), discMat);
       disc.rotation.z = Math.PI / 2;
@@ -607,7 +671,6 @@ function createOperationTooling(operation, isID, isVTL, discMat, cyanMat, steelS
         assembly.add(bmt);
       }
 
-      // Vertical Machined Steel Shank extending straight DOWN from Bottom BMT Station to OD surface!
       const shankW = isGroove ? 2.2 : 5.0;
       const shank = new THREE.Mesh(new THREE.BoxGeometry(shankW, 20, 5.5), steelShankMat);
       shank.position.set(2.2, 10, 0);
@@ -815,10 +878,16 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         spindleGroup.add(jawMesh);
       }
 
-      const odProf = current.odProfile || [rawOD];
-      const idProf = current.idProfile || [0];
-      const tagProf = current.passTagProfile || ['raw'];
-      const solidWorkpiece = buildSolidVerifyWorkpiece(odProf, idProf, tagProf, rawOD, rawRad, stickout, planes);
+      const solidWorkpiece = buildSolidVerifyWorkpiece(
+        current,
+        operation,
+        workSide === 'ID',
+        rawOD,
+        rawRad,
+        partLen,
+        stickout,
+        planes
+      );
       spindleGroup.add(solidWorkpiece);
 
       orientWrapper.add(spindleGroup);
@@ -951,7 +1020,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Box className="w-4 h-4" />
-          <span>SolidCAM 3D Verify ({isVTL ? 'VTL Crown Turret' : domainKey})</span>
+          <span>SolidCAM 3D Verify ({operation} • {isVTL ? 'VTL' : domainKey})</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -1019,7 +1088,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-400"></span> Raw Stock</span>
           <span className="flex items-center gap-1 text-sky-300"><span className="w-2.5 h-2.5 rounded-sm bg-sky-600"></span> Rough Cut</span>
           <span className="flex items-center gap-1 text-emerald-300"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span> Finish Cut</span>
-          <span className="flex items-center gap-1 text-amber-300"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> {mfgCfg.insertType || 'CNMG'} R{mfgCfg.noseRadius || '0.8'}</span>
+          <span className="flex items-center gap-1 text-amber-300"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> {operation === 'Threading' ? '3D Threads' : `${mfgCfg.insertType || 'CNMG'} R${mfgCfg.noseRadius || '0.8'}`}</span>
         </div>
       </div>
 
