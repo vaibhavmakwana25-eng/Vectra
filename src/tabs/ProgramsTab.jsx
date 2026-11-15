@@ -507,54 +507,50 @@ M30`;
 
 const applyNoseCompToCode = (rawCode, compVal) => {
   if (!rawCode) return rawCode;
-  let str = String(rawCode);
-  const u = String(compVal || '').toUpperCase();
-
+  let out = String(rawCode);
+  const up = String(compVal || '').toUpperCase();
   let mode = '';
-  if (u.includes('G41')) mode = 'G41';
-  else if (u.includes('G42')) mode = 'G42';
-  else if (u.includes('G40')) mode = 'G40';
+  if (up.includes('G41')) mode = 'G41';
+  else if (up.includes('G42')) mode = 'G42';
+  else if (up.includes('G40')) mode = 'G40';
+  if (!mode) return out;
 
-  if (!mode) return str;
+  out = out.split('| G42)').join('| ' + mode + ')').split('| G41)').join('| ' + mode + ')').split('| G40)').join('| ' + mode + ')');
+  out = out.split('G42 G01').join('G01').split('G41 G01').join('G01');
 
-  // Handle literal \n if present
-  const hasEscapedNewlines = !str.includes('\n') && str.includes('\\n');
-  if (hasEscapedNewlines) {
-    str = str.replace(/\\n/g, '\n');
+  const cancelTag = 'G40 (CANCEL TOOL NOSE COMPENSATION)';
+  while (out.includes(cancelTag)) {
+    out = out.split(cancelTag + '\r\n').join('').split(cancelTag + '\n').join('').split(cancelTag + '\\n').join('').split(cancelTag).join('');
   }
-
-  // Update header comment tag if present
-  str = str.replace(/\|\s*G4[012]\s*\)/g, ' | ' + mode + ')');
-
-  // Remove old inline G41/G42 before G01 and old G40 cancel lines
-  str = str.replace(/\b(G41|G42)\s+(G0?1)\b/gi, '$2');
-  str = str.replace(/^[ \t]*G40[ \t]*\(CANCEL TOOL NOSE COMPENSATION\)[ \t]*\r?\n?/gm, '');
 
   if (mode === 'G40') {
-    const out40 = str.replace(/\b(G41|G42)\b/g, 'G40');
-    return hasEscapedNewlines ? out40.replace(/\n/g, '\\n') : out40;
+    return out.split('G42').join('G40').split('G41').join('G40');
   }
 
-  // Option 2: Put G42/G41 inline right before first G01 cutting move with X/Z/C
-  const g01Regex = /^([ \t]*(?:N\d+[ \t]+)?)G0?1(?=[ \t]+[XZC])/im;
-  if (g01Regex.test(str)) {
-    str = str.replace(g01Regex, (m, prefix) => {
-      const cmd = m.slice(prefix.length).trim().split(/\s+/)[0];
-      return prefix + mode + ' ' + cmd;
-    });
-  } else if (/\b(G41|G42)\b/.test(str)) {
-    str = str.replace(/\b(G41|G42)\b/g, mode);
-  }
-
-  // Ensure G40 cancel line exists before M30 or G28 at program end
-  if (!/G40\s*\(CANCEL TOOL NOSE COMPENSATION\)/i.test(str)) {
-    const endRegex = /^([ \t]*(?:N\d+[ \t]+)?(?:M30|G28)\b)/im;
-    if (endRegex.test(str)) {
-      str = str.replace(endRegex, 'G40 (CANCEL TOOL NOSE COMPENSATION)\n$1');
+  const targets = ['G01 Z', 'G01 X', 'G01 C', 'g01 z', 'g01 x', 'g01 c'];
+  let bestIdx = -1;
+  let matchedTarget = '';
+  for (const t of targets) {
+    const idx = out.indexOf(t);
+    if (idx !== -1 && (bestIdx === -1 || idx < bestIdx)) {
+      bestIdx = idx;
+      matchedTarget = t;
     }
   }
 
-  return hasEscapedNewlines ? str.replace(/\n/g, '\\n') : str;
+  if (bestIdx !== -1) {
+    const gWord = matchedTarget.slice(0, 3).toUpperCase();
+    const rest = matchedTarget.slice(3);
+    out = out.slice(0, bestIdx) + mode + ' ' + gWord + rest + out.slice(bestIdx + matchedTarget.length);
+  }
+
+  const m30Idx = out.lastIndexOf('M30');
+  if (m30Idx !== -1 && !out.includes(cancelTag)) {
+    const sep = out.includes('\r\n') ? '\r\n' : (out.includes('\n') ? '\n' : '\\n');
+    out = out.slice(0, m30Idx) + cancelTag + sep + out.slice(m30Idx);
+  }
+
+  return out;
 };
 const formatTurnMillByController = (rawCode, ctrlName) => {
   const codeStr = String(rawCode || '');
