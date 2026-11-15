@@ -503,6 +503,22 @@ M30`;
   return `${header}\n${compensatedBase}`;
 }
 
+
+const formatTurnMillByController = (rawCode, ctrlName) => {
+  const codeStr = String(rawCode || '');
+  const u = String(ctrlName || 'Fanuc').toUpperCase();
+  if (u.includes('SIEMENS')) {
+    return codeStr
+      .replace(/^%\r?\n?/, '')
+      .replace(/\r?\n?%$/, '')
+      .replace(/^O\d+\s*/m, '; SIEMENS SINUMERIK ');
+  }
+  if (u.includes('MITSUBISHI')) {
+    return codeStr.replace(/\(FANUC\s*/gi, '(MITSUBISHI ');
+  }
+  return codeStr;
+};
+
 const TURN_MILL_SAMPLES = [
   {
     "name": "OD Pocket Milling (C + X Radial Live Tool)",
@@ -759,7 +775,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     setSelectedTemplateIdx(0);
     if (filteredTemplates[0]) {
       setTitle(filteredTemplates[0].name + ' [' + machiningStage + ']');
-      setCode(adaptCodeForMode(filteredTemplates[0].code, programMode, controller, domainKey, operation, workSide, mfgCfg));
+      setCode((operation === 'Turn-Mill' && Array.isArray(TURN_MILL_SAMPLES) && TURN_MILL_SAMPLES.length > 0) ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, controller) : adaptCodeForMode(filteredTemplates[0].code, programMode, controller, domainKey, operation, workSide, mfgCfg));
     }
   }, [filteredTemplates, programMode, controller, domainKey, operation, workSide, mfgCfg, machiningStage]);
 
@@ -791,21 +807,23 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   };
 
   const handleTemplateChange = (idx) => {
+    const i = Number(idx);
     if (operation === 'Turn-Mill') {
-      const i = Number(arguments[0] ?? 0);
-      const item = TURN_MILL_SAMPLES[Number.isFinite(i) && i >= 0 && i < TURN_MILL_SAMPLES.length ? i : 0];
+      const safeIdx = Number.isFinite(i) && i >= 0 && i < TURN_MILL_SAMPLES.length ? i : 0;
+      const item = TURN_MILL_SAMPLES[safeIdx];
       if (item) {
-        try { if (typeof setSelectedTemplateIdx === 'function') setSelectedTemplateIdx(i); } catch {}
+        try { if (typeof setSelectedTemplateIdx === 'function') setSelectedTemplateIdx(safeIdx); } catch {}
         try { if (typeof setTitle === 'function') setTitle(item.title || item.name); } catch {}
-        try { if (typeof setCode === 'function') setCode(item.code); } catch {}
+        try { if (typeof setCode === 'function') setCode(formatTurnMillByController(item.code, controller)); } catch {}
       }
       return;
     }
-    const i = Number(idx);
-    setSelectedTemplateIdx(i);
-    if (filteredTemplates[i]) {
-      setTitle(filteredTemplates[i].name + ' [' + machiningStage + ']');
-      setCode(adaptCodeForMode(filteredTemplates[i].code, programMode, controller, domainKey, operation, workSide, mfgCfg));
+    const item = filteredTemplates[i];
+    if (!item) return;
+    if (typeof setSelectedTemplateIdx === 'function') setSelectedTemplateIdx(i);
+    if (typeof setTitle === 'function') setTitle(item.name);
+    if (typeof setCode === 'function') {
+      setCode((operation === 'Turn-Mill' && Array.isArray(TURN_MILL_SAMPLES) && TURN_MILL_SAMPLES.length > 0) ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, controller) : adaptCodeForMode(item.code, programMode, controller, domainKey, operation, workSide, mfgCfg));
     }
   };
 
@@ -1600,7 +1618,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                 )}
               </div>
             </div>
-            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{(typeof operation !== 'undefined' && operation === 'Turn-Mill') ? ((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code) : (p.code)}</pre>
+            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{(typeof operation !== 'undefined' && operation === 'Turn-Mill') ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, typeof controller !== 'undefined' ? controller : 'Fanuc') : (p.code)}</pre>
           </div>
         ))}
       </div>
