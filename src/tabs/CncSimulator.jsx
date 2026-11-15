@@ -35,7 +35,8 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
   if (domainKey === 'Turning') {
     const rawOD = Number(mfgCfg.stockX || 50);
     const finOD = Number(mfgCfg.stockY || 32);
-    const partLen = Number(mfgCfg.stockZ || 50);
+    const partLen = Number(mfgCfg.stockZ || 45);
+    const rawID = Number(mfgCfg.rawIdDia || 20);
     const isID = workSide === 'ID';
 
     if (operation === 'Drilling & Tapping') {
@@ -46,22 +47,22 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
       }
       moves.push({ x: 0, y: 0, z: 15, rapid: true, passType: 'rapid', label: 'G00 HOME' });
     } else if (isID) {
-      const startBore = Math.max(16, finOD - 12);
+      const startBore = Math.max(12, rawID);
       if (stage.includes('Rough')) {
         for (let px = startBore + 3; px <= finOD - wallAllow * 2; px += 3) {
           moves.push({ x: startBore - 2, y: 0, z: 2, rapid: true, passType: 'rapid', label: `ID ROUGH X${px.toFixed(1)}` });
           moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', label: `G00 X${px.toFixed(1)}` });
-          moves.push({ x: px, y: 0, z: -partLen + 5, rapid: false, passType: 'rough', label: `G01 X${px.toFixed(1)} Z-${partLen - 5}` });
-          moves.push({ x: startBore - 2, y: 0, z: -partLen + 5, rapid: true, passType: 'rapid', label: 'G00 RETRACT' });
+          moves.push({ x: px, y: 0, z: -partLen, rapid: false, passType: 'rough', label: `G01 X${px.toFixed(1)} Z-${partLen}` });
+          moves.push({ x: startBore - 2, y: 0, z: -partLen, rapid: true, passType: 'rapid', label: 'G00 RETRACT' });
         }
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
         moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', label: `ID FINISH G41/G42 X${finOD}` });
-        moves.push({ x: finOD, y: 0, z: -partLen + 5, rapid: false, passType: 'finish', label: `FINISH BORE X${finOD}` });
+        moves.push({ x: finOD, y: 0, z: -partLen, rapid: false, passType: 'finish', label: `FINISH BORE X${finOD}` });
       }
       if (stage.includes('Chamfer')) {
-        moves.push({ x: finOD + chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', label: 'CHAMFER APPROACH' });
-        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', label: `CHAMFER C${chamfSize}` });
+        moves.push({ x: finOD + chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', label: 'ID CHAMFER APPROACH' });
+        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', label: `ID CHAMFER C${chamfSize}` });
       }
       moves.push({ x: startBore - 2, y: 0, z: 15, rapid: true, passType: 'rapid', label: 'G00 HOME' });
     } else {
@@ -69,17 +70,17 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
         for (let px = rawOD - 4; px >= finOD + wallAllow * 2; px -= 4) {
           moves.push({ x: rawOD + 3, y: 0, z: 2, rapid: true, passType: 'rapid', label: `OD ROUGH X${px.toFixed(1)}` });
           moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', label: `G00 X${px.toFixed(1)}` });
-          moves.push({ x: px, y: 0, z: -partLen + 5, rapid: false, passType: 'rough', label: `G01 X${px.toFixed(1)} Z-${partLen - 5}` });
-          moves.push({ x: px + 2, y: 0, z: -partLen + 6, rapid: true, passType: 'rapid', label: 'G00 RETRACT' });
+          moves.push({ x: px, y: 0, z: -partLen, rapid: false, passType: 'rough', label: `G01 X${px.toFixed(1)} Z-${partLen}` });
+          moves.push({ x: px + 2, y: 0, z: -partLen + 1, rapid: true, passType: 'rapid', label: 'G00 RETRACT' });
         }
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
         moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', label: `OD FINISH G42 X${finOD}` });
-        moves.push({ x: finOD, y: 0, z: -partLen + 5, rapid: false, passType: 'finish', label: `FINISH OD X${finOD}` });
+        moves.push({ x: finOD, y: 0, z: -partLen, rapid: false, passType: 'finish', label: `FINISH OD X${finOD}` });
       }
       if (stage.includes('Chamfer')) {
-        moves.push({ x: finOD - chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', label: 'CHAMFER APPROACH' });
-        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', label: `CHAMFER C${chamfSize}` });
+        moves.push({ x: finOD - chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', label: 'OD CHAMFER APPROACH' });
+        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', label: `OD CHAMFER C${chamfSize}` });
       }
       moves.push({ x: rawOD + 6, y: 0, z: 15, rapid: true, passType: 'rapid', label: 'G00 HOME' });
     }
@@ -174,17 +175,27 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
   return moves.length > 0 ? moves : [{ x: 0, y: 0, z: 10, rapid: true, passType: 'rapid', label: 'READY' }];
 }
 
-export default function CncSimulator({ domainKey, workSide, operation, templateName = '', mfgCfg = {} }) {
+export default function CncSimulator({ domainKey, machineType, workSide, operation, templateName = '', mfgCfg = {} }) {
   const [playing, setPlaying] = useState(true);
   const [stepIdx, setStepIdx] = useState(0);
   const [speed, setSpeed] = useState(1);
 
-  // 3D Camera States: yaw (Z rotation), pitch (tilt), zoom, halfCut
-  const [yaw, setYaw] = useState(-35);
-  const [pitch, setPitch] = useState(58);
+  const isVTL = machineType === 'VTL';
+  const [yaw, setYaw] = useState(-32);
+  const [pitch, setPitch] = useState(62);
   const [zoom, setZoom] = useState(1.0);
   const [halfCut, setHalfCut] = useState(false);
   const [dragStart, setDragStart] = useState(null);
+
+  useEffect(() => {
+    if (domainKey === 'Turning') {
+      setYaw(isVTL ? -28 : -22);
+      setPitch(isVTL ? 64 : 74);
+    } else {
+      setYaw(-35);
+      setPitch(58);
+    }
+  }, [domainKey, isVTL]);
 
   const moves = useMemo(
     () => parseToolpath(domainKey, workSide, operation, templateName, mfgCfg),
@@ -208,45 +219,39 @@ export default function CncSimulator({ domainKey, workSide, operation, templateN
   const history = moves.slice(0, stepIdx + 1);
   const tName = (templateName + ' ' + workSide).toUpperCase();
 
-  // True 3D Orthographic-Perspective Projection (X, Y, Z -> Screen 2D)
   const project3D = (x, y, z) => {
     const radYaw = (yaw * Math.PI) / 180;
     const radPitch = (pitch * Math.PI) / 180;
-
-    // Rotate around Z axis (yaw)
     const x1 = x * Math.cos(radYaw) - y * Math.sin(radYaw);
     const y1 = x * Math.sin(radYaw) + y * Math.cos(radYaw);
-
-    // Tilt around X axis (pitch)
-    const screenX = 190 + x1 * 2.2 * zoom;
-    const screenY = 165 + (y1 * Math.cos(radPitch) - z * Math.sin(radPitch)) * 2.2 * zoom;
+    const screenX = 190 + x1 * 2.15 * zoom;
+    const screenY = 165 + (y1 * Math.cos(radPitch) - z * Math.sin(radPitch)) * 2.15 * zoom;
     return { x: screenX, y: screenY };
   };
 
-  // Map Turning (X=Diameter, Z=Axis) into 3D space (Axis along X, Radius in Y/Z)
+  // Turning 3D Coordinate Mapper:
+  // Horizontal Lathe: Spindle Axis along X (-35 Chuck to +35 Face), Radius along Z (up)
+  // VTL: Vertical Spindle Axis along Z (-35 Table to +35 Top Face), Radius along X (right)
   const mapPoint3D = (pt) => {
     if (domainKey === 'Turning') {
-      const zAxis = (pt.z || 0) + 25; // shift workpiece center
-      const rad = (pt.x || 0) / 2;
-      return project3D(zAxis, -rad, 0);
+      const stickout = Math.min(55, Math.max(25, Number(mfgCfg.chuckStickout || 55) * 0.75));
+      const zFromFace = pt.z || 0; // 0 at face, negative towards chuck
+      const rad = (pt.x || 0) * 0.55;
+      if (isVTL) {
+        return project3D(rad, 0, stickout / 2 + zFromFace * 0.75);
+      }
+      return project3D(stickout / 2 + zFromFace * 0.75, 0, rad);
     }
     return project3D(pt.x || 0, pt.y || 0, pt.z || 0);
   };
 
-  const handlePointerDown = (e) => {
-    setDragStart({ x: e.clientX, y: e.clientY, yaw, pitch });
-  };
-
+  const handlePointerDown = (e) => setDragStart({ x: e.clientX, y: e.clientY, yaw, pitch });
   const handlePointerMove = (e) => {
     if (!dragStart) return;
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
-    setYaw(dragStart.yaw + dx * 0.6);
-    setPitch(Math.max(0, Math.min(90, dragStart.pitch + dy * 0.5)));
+    setYaw(dragStart.yaw + (e.clientX - dragStart.x) * 0.6);
+    setPitch(Math.max(0, Math.min(90, dragStart.pitch + (e.clientY - dragStart.y) * 0.5)));
   };
-
   const handlePointerUp = () => setDragStart(null);
-
   const handleWheel = (e) => {
     e.preventDefault();
     setZoom((z) => Math.max(0.5, Math.min(2.4, Number((z - e.deltaY * 0.001).toFixed(2)))));
@@ -259,13 +264,34 @@ export default function CncSimulator({ domainKey, workSide, operation, templateN
     return '#10b981';
   };
 
-  // 3D Stock Box Geometry
-  const halfX = domainKey === 'Turning' ? 32 : Math.min(48, Number(mfgCfg.stockX || 100) / 2.2);
-  const halfY = domainKey === 'Turning' ? 24 : Math.min(38, Number(mfgCfg.stockY || 80) / 2.2);
-  const stockH = domainKey === 'Turning' ? 24 : Math.min(26, Number(mfgCfg.stockZ || 30) * 0.8);
-  const featDepth = Math.min(stockH - 2, Number(mfgCfg.featureDepth || 10) * 0.9);
+  const polyStr = (pts) => pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
-  // Half-Cut clips positive Y (front half removed so inner depth/wall is visible)
+  // Build 3D Cylinder Rings for Turning / VTL
+  const buildCylinderRings = (radius, axisStart, axisEnd, steps = 28) => {
+    const startRing = [];
+    const endRing = [];
+    const startAngle = halfCut ? 0 : 0;
+    const endAngle = halfCut ? Math.PI : Math.PI * 2;
+    for (let i = 0; i <= steps; i++) {
+      const ang = startAngle + (i / steps) * (endAngle - startAngle);
+      const c = Math.cos(ang) * radius;
+      const s = Math.sin(ang) * radius;
+      if (isVTL) {
+        startRing.push(project3D(c, s, axisStart));
+        endRing.push(project3D(c, s, axisEnd));
+      } else {
+        startRing.push(project3D(axisStart, s, c));
+        endRing.push(project3D(axisEnd, s, c));
+      }
+    }
+    return { startRing, endRing };
+  };
+
+  // Milling 3D Stock Box
+  const halfX = Math.min(48, Number(mfgCfg.stockX || 100) / 2.2);
+  const halfY = Math.min(38, Number(mfgCfg.stockY || 80) / 2.2);
+  const stockH = Math.min(26, Number(mfgCfg.stockZ || 30) * 0.8);
+  const featDepth = Math.min(stockH - 2, Number(mfgCfg.featureDepth || 10) * 0.9);
   const yFront = halfCut ? 0 : -halfY;
   const yBack = halfY;
 
@@ -282,15 +308,20 @@ export default function CncSimulator({ domainKey, workSide, operation, templateN
     project3D(-halfX, yBack, -stockH)
   ];
 
-  const polyStr = (pts) => pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-
   const toolTip = mapPoint3D(current);
   const toolTop = domainKey === 'Turning'
-    ? project3D((current.z || 0) + 25, -((current.x || 0) / 2) - 22, 14)
+    ? (isVTL
+      ? project3D((current.x || 0) * 0.55 + 22, 0, Math.min(55, Number(mfgCfg.chuckStickout || 55) * 0.75) / 2 + (current.z || 0) * 0.75 + 22)
+      : project3D(Math.min(55, Number(mfgCfg.chuckStickout || 55) * 0.75) / 2 + (current.z || 0) * 0.75 + 16, 0, (current.x || 0) * 0.55 + 26))
     : project3D(current.x || 0, current.y || 0, (current.z || 0) + 26);
 
   const cutterDia = Number(mfgCfg.toolDia || 12);
   const cutterRadPx = Math.max(5, Math.min(16, cutterDia * 0.65 * zoom));
+
+  const stickout = Math.min(55, Math.max(25, Number(mfgCfg.chuckStickout || 55) * 0.75));
+  const rawBarRad = Math.min(34, Math.max(14, Number(mfgCfg.stockX || 50) * 0.55));
+  const rawBoreRad = Math.min(rawBarRad - 4, Math.max(6, Number(mfgCfg.rawIdDia || 20) * 0.55));
+  const isHollowID = workSide === 'ID' || (mfgCfg.areaType || '').includes('Hollow') || (mfgCfg.areaType || '').includes('Pre-Drilled');
 
   return (
     <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-full min-h-[600px]">
@@ -298,7 +329,7 @@ export default function CncSimulator({ domainKey, workSide, operation, templateN
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Box className="w-4 h-4" />
-          <span>3D Interactive CNC Simulator</span>
+          <span>3D {isVTL ? 'VTL Vertical Turning' : domainKey} Simulator</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -332,7 +363,7 @@ export default function CncSimulator({ domainKey, workSide, operation, templateN
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => { setYaw(-35); setPitch(58); }}
+            onClick={() => { setYaw(-28); setPitch(64); }}
             className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700"
           >
             3D Iso
@@ -409,106 +440,144 @@ export default function CncSimulator({ domainKey, workSide, operation, templateN
           </defs>
           <rect width="380" height="320" fill="url(#grid3d)" />
 
-          {/* 3D Workpiece Faces */}
-          {/* Bottom Face */}
-          <polygon points={polyStr(btmCorners)} fill="#1e293b" fillOpacity="0.55" stroke="#475569" strokeWidth="1" />
-          {/* Back Face */}
-          <polygon
-            points={polyStr([topCorners[2], topCorners[3], btmCorners[3], btmCorners[2]])}
-            fill="#334155"
-            fillOpacity="0.45"
-            stroke="#64748b"
-            strokeWidth="1"
-          />
-          {/* Left & Right Side Faces */}
-          <polygon
-            points={polyStr([topCorners[0], topCorners[3], btmCorners[3], btmCorners[0]])}
-            fill="#334155"
-            fillOpacity="0.4"
-            stroke="#64748b"
-            strokeWidth="1"
-          />
-          <polygon
-            points={polyStr([topCorners[1], topCorners[2], btmCorners[2], btmCorners[1]])}
-            fill="#1e293b"
-            fillOpacity="0.5"
-            stroke="#64748b"
-            strokeWidth="1"
-          />
-          {/* Top Face */}
-          <polygon points={polyStr(topCorners)} fill="#475569" fillOpacity="0.35" stroke="#94a3b8" strokeWidth="1.4" />
+          {domainKey === 'Turning' ? (
+            <>
+              {/* 3D CHUCK (Horizontal Left for Lathe, Bottom Table for VTL) */}
+              {(() => {
+                const chuck = buildCylinderRings(rawBarRad + 10, -stickout / 2 - 18, -stickout / 2, 24);
+                return (
+                  <g>
+                    <polygon points={polyStr(chuck.startRing)} fill="#1e293b" stroke="#475569" strokeWidth="1.2" />
+                    <polygon points={polyStr(chuck.endRing)} fill="#334155" stroke="#64748b" strokeWidth="1.4" />
+                    {chuck.startRing.map((p, i) =>
+                      i % 4 === 0 ? (
+                        <line key={i} x1={p.x} y1={p.y} x2={chuck.endRing[i].x} y2={chuck.endRing[i].y} stroke="#475569" strokeWidth="1" />
+                      ) : null
+                    )}
+                  </g>
+                );
+              })()}
 
-          {/* Front Section Cut Face (Highlighted Hatching when Half-Cut is ON) */}
-          <polygon
-            points={polyStr([topCorners[0], topCorners[1], btmCorners[1], btmCorners[0]])}
-            fill={halfCut ? '#f59e0b' : '#334155'}
-            fillOpacity={halfCut ? '0.18' : '0.35'}
-            stroke={halfCut ? '#f59e0b' : '#94a3b8'}
-            strokeWidth={halfCut ? '1.6' : '1.2'}
-          />
+              {/* 3D CYLINDRICAL WORKPIECE (Stickout from Chuck) */}
+              {(() => {
+                const cyl = buildCylinderRings(rawBarRad, -stickout / 2, stickout / 2, 28);
+                const bore = isHollowID ? buildCylinderRings(rawBoreRad, -stickout / 2, stickout / 2, 24) : null;
+                return (
+                  <g>
+                    {/* Outer Cylinder Body */}
+                    <polygon points={polyStr(cyl.startRing)} fill="#475569" fillOpacity="0.3" stroke="#94a3b8" strokeWidth="1.2" />
+                    {cyl.startRing.map((p, i) =>
+                      i % 2 === 0 ? (
+                        <line key={i} x1={p.x} y1={p.y} x2={cyl.endRing[i].x} y2={cyl.endRing[i].y} stroke="#64748b" strokeWidth="0.8" />
+                      ) : null
+                    )}
+                    {/* Front Face Ring */}
+                    <polygon points={polyStr(cyl.endRing)} fill="#64748b" fillOpacity="0.28" stroke="#cbd5e1" strokeWidth="1.5" />
 
-          {/* Half-Cut Internal Pocket / Spigot Depth Cavity */}
-          {halfCut && domainKey !== 'Turning' && (
-            <polygon
-              points={polyStr([
-                project3D(-22, 0, 0),
-                project3D(22, 0, 0),
-                project3D(22, 0, -featDepth),
-                project3D(-22, 0, -featDepth)
-              ])}
-              fill="#050914"
-              stroke="#38bdf8"
-              strokeWidth="1.5"
-              strokeDasharray="3,2"
-            />
-          )}
+                    {/* Inner Bore Ring if ID / Hollow Job */}
+                    {bore && (
+                      <>
+                        <polygon points={polyStr(bore.endRing)} fill="#050914" stroke="#38bdf8" strokeWidth="1.3" strokeDasharray="3,2" />
+                        <polygon points={polyStr(bore.startRing)} fill="none" stroke="#38bdf8" strokeWidth="1" strokeDasharray="3,2" />
+                      </>
+                    )}
 
-          {/* 3D Feature Outline on Top Surface */}
-          {domainKey !== 'Turning' && (tName.includes('CIRCULAR POCKET') || tName.includes('CIRCULAR SPIGOT')) && (
-            <polygon
-              points={polyStr(
-                circlePoints(tName.includes('POCKET') ? 22 : 20, 28)
-                  .filter((p) => !halfCut || p.y >= 0)
-                  .map((p) => project3D(p.x, p.y, 0))
+                    {/* Half-Cut Cross Section Plane */}
+                    {halfCut && (
+                      <polygon
+                        points={polyStr(
+                          isVTL
+                            ? [
+                                project3D(-rawBarRad, 0, -stickout / 2),
+                                project3D(rawBarRad, 0, -stickout / 2),
+                                project3D(rawBarRad, 0, stickout / 2),
+                                project3D(-rawBarRad, 0, stickout / 2)
+                              ]
+                            : [
+                                project3D(-stickout / 2, 0, -rawBarRad),
+                                project3D(stickout / 2, 0, -rawBarRad),
+                                project3D(stickout / 2, 0, rawBarRad),
+                                project3D(-stickout / 2, 0, rawBarRad)
+                              ]
+                        )}
+                        fill="#f59e0b"
+                        fillOpacity="0.16"
+                        stroke="#f59e0b"
+                        strokeWidth="1.5"
+                      />
+                    )}
+                  </g>
+                );
+              })()}
+
+              {/* Spindle Centerline */}
+              {(() => {
+                const c1 = isVTL ? project3D(0, 0, -stickout / 2 - 22) : project3D(-stickout / 2 - 22, 0, 0);
+                const c2 = isVTL ? project3D(0, 0, stickout / 2 + 16) : project3D(stickout / 2 + 16, 0, 0);
+                return <line x1={c1.x} y1={c1.y} x2={c2.x} y2={c2.y} stroke="#ef4444" strokeWidth="1" strokeDasharray="5,3" />;
+              })()}
+            </>
+          ) : (
+            <>
+              {/* MILLING 3D RECTANGULAR BLOCK */}
+              <polygon points={polyStr(btmCorners)} fill="#1e293b" fillOpacity="0.55" stroke="#475569" strokeWidth="1" />
+              <polygon points={polyStr([topCorners[2], topCorners[3], btmCorners[3], btmCorners[2]])} fill="#334155" fillOpacity="0.45" stroke="#64748b" strokeWidth="1" />
+              <polygon points={polyStr([topCorners[0], topCorners[3], btmCorners[3], btmCorners[0]])} fill="#334155" fillOpacity="0.4" stroke="#64748b" strokeWidth="1" />
+              <polygon points={polyStr([topCorners[1], topCorners[2], btmCorners[2], btmCorners[1]])} fill="#1e293b" fillOpacity="0.5" stroke="#64748b" strokeWidth="1" />
+              <polygon points={polyStr(topCorners)} fill="#475569" fillOpacity="0.35" stroke="#94a3b8" strokeWidth="1.4" />
+
+              <polygon
+                points={polyStr([topCorners[0], topCorners[1], btmCorners[1], btmCorners[0]])}
+                fill={halfCut ? '#f59e0b' : '#334155'}
+                fillOpacity={halfCut ? '0.18' : '0.35'}
+                stroke={halfCut ? '#f59e0b' : '#94a3b8'}
+                strokeWidth={halfCut ? '1.6' : '1.2'}
+              />
+
+              {halfCut && (
+                <polygon
+                  points={polyStr([
+                    project3D(-22, 0, 0),
+                    project3D(22, 0, 0),
+                    project3D(22, 0, -featDepth),
+                    project3D(-22, 0, -featDepth)
+                  ])}
+                  fill="#050914"
+                  stroke="#38bdf8"
+                  strokeWidth="1.5"
+                  strokeDasharray="3,2"
+                />
               )}
-              fill="none"
-              stroke="#38bdf8"
-              strokeWidth="1.4"
-              strokeDasharray="3,2"
-            />
-          )}
 
-          {domainKey !== 'Turning' && (tName.includes('RECTANGULAR POCKET') || tName.includes('RECTANGULAR SPIGOT')) && (
-            <polygon
-              points={polyStr(
-                rectPoints(tName.includes('POCKET') ? 26 : 22, tName.includes('POCKET') ? 16 : 14).map((p) =>
-                  project3D(p.x, halfCut && p.y < 0 ? 0 : p.y, 0)
-                )
+              {(tName.includes('CIRCULAR POCKET') || tName.includes('CIRCULAR SPIGOT')) && (
+                <polygon
+                  points={polyStr(
+                    circlePoints(tName.includes('POCKET') ? 22 : 20, 28)
+                      .filter((p) => !halfCut || p.y >= 0)
+                      .map((p) => project3D(p.x, p.y, 0))
+                  )}
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth="1.4"
+                  strokeDasharray="3,2"
+                />
               )}
-              fill="none"
-              stroke="#38bdf8"
-              strokeWidth="1.4"
-              strokeDasharray="3,2"
-            />
-          )}
 
-          {/* 3D Axes Indicator (X, Y, Z) */}
-          {(() => {
-            const o = project3D(-halfX - 8, -halfY - 6, -stockH);
-            const axX = project3D(-halfX + 6, -halfY - 6, -stockH);
-            const axY = project3D(-halfX - 8, -halfY + 8, -stockH);
-            const axZ = project3D(-halfX - 8, -halfY - 6, -stockH + 14);
-            return (
-              <g fontSize="9" fontFamily="monospace" fontWeight="bold">
-                <line x1={o.x} y1={o.y} x2={axX.x} y2={axX.y} stroke="#ef4444" strokeWidth="1.6" />
-                <text x={axX.x + 2} y={axX.y} fill="#ef4444">X</text>
-                <line x1={o.x} y1={o.y} x2={axY.x} y2={axY.y} stroke="#22c55e" strokeWidth="1.6" />
-                <text x={axY.x + 2} y={axY.y} fill="#22c55e">Y</text>
-                <line x1={o.x} y1={o.y} x2={axZ.x} y2={axZ.y} stroke="#38bdf8" strokeWidth="1.6" />
-                <text x={axZ.x + 2} y={axZ.y} fill="#38bdf8">Z</text>
-              </g>
-            );
-          })()}
+              {(tName.includes('RECTANGULAR POCKET') || tName.includes('RECTANGULAR SPIGOT')) && (
+                <polygon
+                  points={polyStr(
+                    rectPoints(tName.includes('POCKET') ? 26 : 22, tName.includes('POCKET') ? 16 : 14).map((p) =>
+                      project3D(p.x, halfCut && p.y < 0 ? 0 : p.y, 0)
+                    )
+                  )}
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth="1.4"
+                  strokeDasharray="3,2"
+                />
+              )}
+            </>
+          )}
 
           {/* 3D Toolpath Trajectory */}
           {history.map((m, idx) => {
@@ -529,37 +598,31 @@ export default function CncSimulator({ domainKey, workSide, operation, templateN
             );
           })}
 
-          {/* 3D Rotating Endmill / Turning Tool */}
-          <g>
-            <line
-              x1={toolTip.x}
-              y1={toolTip.y}
-              x2={toolTop.x}
-              y2={toolTop.y}
-              stroke="#cbd5e1"
-              strokeWidth={cutterRadPx * 1.1}
-              strokeLinecap="round"
-              strokeOpacity="0.45"
-            />
-            <line
-              x1={toolTip.x}
-              y1={toolTip.y}
-              x2={toolTop.x}
-              y2={toolTop.y}
-              stroke="#f59e0b"
-              strokeWidth={Math.max(2, cutterRadPx * 0.45)}
-              strokeLinecap="round"
-            />
-            <circle cx={toolTip.x} cy={toolTip.y} r={Math.max(3.5, cutterRadPx * 0.45)} fill="#f59e0b" stroke="#fef08a" strokeWidth="1" />
-          </g>
+          {/* 3D Cutting Tool (Carbide Turning Insert Holder vs Rotating Endmill) */}
+          {domainKey === 'Turning' ? (
+            <g>
+              <line x1={toolTip.x} y1={toolTip.y} x2={toolTop.x} y2={toolTop.y} stroke="#475569" strokeWidth="7" strokeLinecap="round" />
+              <polygon
+                points={`${toolTip.x},${toolTip.y} ${toolTip.x + 8},${toolTip.y - 10} ${toolTip.x + 13},${toolTip.y - 3}`}
+                fill="#f59e0b"
+                stroke="#fef08a"
+                strokeWidth="1"
+              />
+              {!current.rapid && <circle cx={toolTip.x} cy={toolTip.y} r="3.5" fill="#34d399" />}
+            </g>
+          ) : (
+            <g>
+              <line x1={toolTip.x} y1={toolTip.y} x2={toolTop.x} y2={toolTop.y} stroke="#cbd5e1" strokeWidth={cutterRadPx * 1.1} strokeLinecap="round" strokeOpacity="0.45" />
+              <line x1={toolTip.x} y1={toolTip.y} x2={toolTop.x} y2={toolTop.y} stroke="#f59e0b" strokeWidth={Math.max(2, cutterRadPx * 0.45)} strokeLinecap="round" />
+              <circle cx={toolTip.x} cy={toolTip.y} r={Math.max(3.5, cutterRadPx * 0.45)} fill="#f59e0b" stroke="#fef08a" strokeWidth="1" />
+            </g>
+          )}
         </svg>
 
-        {/* Drag Hint & Zoom Badge */}
         <div className="absolute top-2 left-2.5 text-[10px] font-mono text-slate-400 bg-slate-950/80 px-2 py-0.5 rounded border border-slate-800">
           Drag: Rotate 360° • Scroll: Zoom ({Math.round(zoom * 100)}%)
         </div>
 
-        {/* Pass Legend */}
         <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-2.5 text-[10px] font-mono bg-slate-950/90 px-2.5 py-1 rounded-md border border-slate-800">
           <span className="flex items-center gap-1 text-rose-400"><span className="w-2.5 h-0.5 bg-rose-400"></span> Rapid</span>
           <span className="flex items-center gap-1 text-emerald-400"><span className="w-2.5 h-0.5 bg-emerald-400"></span> Rough</span>

@@ -22,10 +22,17 @@ const MACHINING_STAGES = [
   'Chamfering Pass'
 ];
 
-const AREA_TYPES = [
+const MILL_AREA_TYPES = [
   'Blind Area (Solid Stock)',
   'Through Area (Open)',
   'Pre-Cast Wall Only'
+];
+
+const TURN_AREA_TYPES = [
+  'Solid OD Bar Stock',
+  'Blind ID (Need Drilling First)',
+  'Pre-Drilled / Raw Hollow ID',
+  'Pre-Machined Forging / Casting'
 ];
 
 const COMP_MODES = [
@@ -367,13 +374,15 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   const [stockY, setStockY] = useState('80');
   const [stockZ, setStockZ] = useState('30');
   const [featureDepth, setFeatureDepth] = useState('10');
+  const [chuckStickout, setChuckStickout] = useState('65');
+  const [rawIdDia, setRawIdDia] = useState('20');
 
-  const [areaType, setAreaType] = useState(AREA_TYPES[0]);
+  const [areaType, setAreaType] = useState(TURN_AREA_TYPES[0]);
   const [machiningStage, setMachiningStage] = useState(MACHINING_STAGES[0]);
   const [wallAllowance, setWallAllowance] = useState('0.3');
   const [bottomAllowance, setBottomAllowance] = useState('0.2');
 
-  const domainKey = machineType === 'Turning' ? 'Turning' : 'Milling';
+  const domainKey = (machineType === 'Turning' || machineType === 'VTL') ? 'Turning' : 'Milling';
   const showChamferCascade = machiningStage === 'Chamfering Pass';
 
   const mfgCfg = useMemo(
@@ -389,6 +398,8 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       stockY,
       stockZ,
       featureDepth,
+      chuckStickout,
+      rawIdDia,
       areaType,
       machiningStage,
       wallAllowance,
@@ -406,6 +417,8 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       stockY,
       stockZ,
       featureDepth,
+      chuckStickout,
+      rawIdDia,
       areaType,
       machiningStage,
       wallAllowance,
@@ -465,14 +478,17 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     const firstModel = JYOTI_MACHINE_CASCADE[cat][firstSeries][0];
     setMachineSeries(firstSeries);
     setMachineModel(firstModel);
-    if (cat === 'Turning') {
-      setStockX('50');
-      setStockY('32');
-      setStockZ('50');
+    if (cat === 'Turning' || cat === 'VTL') {
+      setStockX(cat === 'VTL' ? '220' : '50');
+      setStockY(cat === 'VTL' ? '160' : '32');
+      setStockZ(cat === 'VTL' ? '120' : '45');
+      setChuckStickout(cat === 'VTL' ? '140' : '65');
+      setAreaType(TURN_AREA_TYPES[0]);
     } else {
       setStockX('100');
       setStockY('80');
       setStockZ('30');
+      setAreaType(MILL_AREA_TYPES[0]);
     }
   };
 
@@ -654,13 +670,15 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
             </div>
 
             <div>
-              <label className="block text-[10px] font-semibold text-slate-400 mb-1">Pocket / Spigot Area</label>
+              <label className="block text-[10px] font-semibold text-slate-400 mb-1">
+                {domainKey === 'Turning' ? 'Job / ID Stock Condition' : 'Pocket / Spigot Area'}
+              </label>
               <select
                 value={areaType}
                 onChange={(e) => setAreaType(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:border-amber-400 outline-none"
               >
-                {AREA_TYPES.map((ar) => (
+                {(domainKey === 'Turning' ? TURN_AREA_TYPES : MILL_AREA_TYPES).map((ar) => (
                   <option key={ar} value={ar}>{ar}</option>
                 ))}
               </select>
@@ -727,15 +745,29 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               />
             </div>
 
-            <div>
-              <label className="block text-[10px] font-semibold text-slate-400 mb-1">Pocket / Cut Depth (mm)</label>
-              <input
-                type="number"
-                value={featureDepth}
-                onChange={(e) => setFeatureDepth(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-              />
-            </div>
+            {domainKey === 'Turning' ? (
+              <div>
+                <label className="block text-[10px] font-semibold text-amber-300 mb-1">
+                  {workSide === 'ID' ? 'Raw ID Dia (mm)' : 'Chuck Stickout (mm)'}
+                </label>
+                <input
+                  type="number"
+                  value={workSide === 'ID' ? rawIdDia : chuckStickout}
+                  onChange={(e) => (workSide === 'ID' ? setRawIdDia(e.target.value) : setChuckStickout(e.target.value))}
+                  className="w-full bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1">Pocket / Cut Depth (mm)</label>
+                <input
+                  type="number"
+                  value={featureDepth}
+                  onChange={(e) => setFeatureDepth(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                />
+              </div>
+            )}
           </div>
 
           {/* Row C: Main Cutter Data + G41/G42 Compensation Mode */}
@@ -878,6 +910,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
             />
             <CncSimulator
               domainKey={domainKey}
+              machineType={machineType}
               workSide={workSide}
               operation={operation}
               templateName={filteredTemplates[selectedTemplateIdx]?.name || title}
@@ -937,3 +970,4 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
+
