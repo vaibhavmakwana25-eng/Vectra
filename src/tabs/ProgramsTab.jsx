@@ -509,7 +509,8 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   const initialSeries = Object.keys(JYOTI_MACHINE_CASCADE[initialCategory])[0];
   const initialModel = JYOTI_MACHINE_CASCADE[initialCategory][initialSeries][0];
 
-  const [controller, setController] = useState(CONTROLLERS[0] || 'Fanuc');
+  const [controllerBrand, setControllerBrand] = useState('Siemens');
+const [controller, setController] = useState(CONTROLLERS[0] || 'Fanuc');
   const [machineType, setMachineType] = useState(initialCategory);
   const [machineSeries, setMachineSeries] = useState(initialSeries);
   const [machineModel, setMachineModel] = useState(initialModel);
