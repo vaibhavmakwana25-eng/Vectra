@@ -528,19 +528,19 @@ Return ONLY valid JSON: {"category":"","series":"","model":"","controller":"","p
               required
             />
             <div className="space-y-1">
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap sm:flex-nowrap gap-2">
                 <input
                   type="text"
                   placeholder="Area, City or tap Pin Here →"
                   value={form.location}
                   onChange={(e) => setForm({ ...form, location: e.target.value })}
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm"
+                  className="w-full sm:flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm"
                 />
                 <button
                   type="button"
                   onClick={handlePinHere}
                   disabled={pinningGPS}
-                  className="px-2.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-lg flex items-center gap-1 text-xs font-semibold shrink-0"
+                  className="flex-1 sm:flex-initial justify-center py-2 px-3 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-lg flex items-center gap-1 text-xs font-semibold shrink-0"
                   title="Capture current Area & City right here"
                 >
                   <LocateFixed className={`w-4 h-4 ${pinningGPS ? 'animate-spin' : ''}`} />
@@ -550,7 +550,7 @@ Return ONLY valid JSON: {"category":"","series":"","model":"","controller":"","p
                   type="button"
                   onClick={() => openGoogleMapsPin(form.location)}
                   disabled={!form.location.trim()}
-                  className="px-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 disabled:opacity-40 text-emerald-300 border border-emerald-500/30 rounded-lg flex items-center gap-1 text-xs font-semibold shrink-0"
+                  className="flex-1 sm:flex-initial justify-center py-2 px-3 bg-emerald-600/20 hover:bg-emerald-600/30 disabled:opacity-40 text-emerald-300 border border-emerald-500/30 rounded-lg flex items-center gap-1 text-xs font-semibold shrink-0"
                   title="Open location in Google Maps"
                 >
                   <MapPin className="w-4 h-4" /> Map

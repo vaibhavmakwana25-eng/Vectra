@@ -323,7 +323,7 @@ ${promptText}`;
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 z-30">
-        <div className="max-w-5xl mx-auto grid grid-cols-6">
+        <div className="max-w-5xl mx-auto flex overflow-x-auto sm:grid sm:grid-cols-6">
           {[
             { id: 'site', label: 'Site & AI', icon: Wrench },
             { id: 'tooling', label: 'Tooling', icon: Cpu },
@@ -338,7 +338,7 @@ ${promptText}`;
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-center justify-center py-2.5 px-1 transition-colors ${
+                className={`min-w-[76px] flex-1 flex flex-col items-center justify-center py-2.5 px-2 shrink-0 transition-colors ${
                   active ? 'text-cyan-400 bg-cyan-500/10 border-t-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
