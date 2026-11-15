@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { db } from './db';
 import {
   Wrench, Cpu, FileCode, BookOpen, CalendarCheck, Bot, Settings, X
@@ -151,7 +151,7 @@ export default function App() {
     const cleanKey = apiKey.trim();
     if (!cleanKey) {
       setShowSettings(true);
-      return '⚠️ Please click the Settings (⚙️) icon at the top right and enter your Free Gemini API Key.';
+      return 'âš ï¸ Please click the Settings (âš™ï¸) icon at the top right and enter your Free Gemini API Key.';
     }
 
     const pastKnowledge = siteVisits
@@ -166,7 +166,7 @@ export default function App() {
 
     const fullPrompt = `You are VECTRA, an expert CNC Applications, Tooling, Cycle Time & Programming Engineer Assistant for Jyoti CNC machines.
 Always respond strictly in clear, simple technical English.
-Keep answers short, direct, and easy to understand with practical steps, parameters, variables, or G-code directly unless detailed breakdown is requested.
+STRICT FORMATTING RULE: Never use markdown symbols like **, ##, ###, or backticks. Reply in plain, simple, direct shop-floor English in maximum 4 to 6 short bullet lines (using simple • bullets). Give only exact practical parameters, G-code, or steps with zero fluff.
 --- PAST SITE RECORDS ---
 ${pastKnowledge || 'None yet'}
 --- SAVED PARAMETERS ---
@@ -186,7 +186,7 @@ ${promptText}`;
       const listData = await listRes.json();
 
       if (!listRes.ok) {
-        return `❌ API Key Error: ${listData?.error?.message || listRes.statusText}`;
+        return `âŒ API Key Error: ${listData?.error?.message || listRes.statusText}`;
       }
 
       const fastModels = (listData.models || [])
@@ -231,9 +231,9 @@ ${promptText}`;
         }
       }
 
-      return `❌ All fast models busy right now (${lastError}). Please click Send again in 5 seconds.`;
+      return `âŒ All fast models busy right now (${lastError}). Please click Send again in 5 seconds.`;
     } catch (err) {
-      return `❌ Network Error: ${err.message}`;
+      return `âŒ Network Error: ${err.message}`;
     }
   };
 
@@ -388,3 +388,4 @@ ${promptText}`;
     </div>
   );
 }
+
