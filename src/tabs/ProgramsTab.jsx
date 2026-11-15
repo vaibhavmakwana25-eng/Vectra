@@ -1363,6 +1363,48 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                   ))}
                 </select>
               </div>
+              {(operation === 'Drilling' || operation === 'Tapping') && (
+                <div>
+                  <label className="text-[11px] font-semibold text-amber-400 block mb-1">
+                    {operation === 'Drilling' ? 'Drilling Cycle Mode (G81/G73/G83)' : 'Tapping Cycle Mode (G84/G74)'}
+                  </label>
+                  {operation === 'Drilling' ? (
+                    <select
+                      value={mfgCfg.drillMode || 'Deep Hole Peck Drilling (G83 - Full Retract)'}
+                      onChange={(e) => setMfgCfg({ ...mfgCfg, drillMode: e.target.value })}
+                      className="w-full bg-slate-900 border border-cyan-500/50 rounded-lg px-2.5 py-1.5 text-xs text-cyan-300 font-bold outline-none"
+                    >
+                      <option value="Standard Drilling (G81 - Direct)">Standard Drilling (G81 - Direct)</option>
+                      <option value="Spot / Dwell Drilling (G82 - Bottom Dwell)">Spot / Dwell Drilling (G82 - Bottom Dwell)</option>
+                      <option value="Chip-Breaking Peck Drilling (G73 - 1mm Retract)">Chip-Breaking Peck Drilling (G73 - 1mm Retract)</option>
+                      <option value="Deep Hole Peck Drilling (G83 - Full Retract)">Deep Hole Peck Drilling (G83 - Full Retract)</option>
+                    </select>
+                  ) : (
+                    <select
+                      value={mfgCfg.tapMode || 'Standard Rigid Tapping (G84 - Single Pass)'}
+                      onChange={(e) => setMfgCfg({ ...mfgCfg, tapMode: e.target.value })}
+                      className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-2.5 py-1.5 text-xs text-amber-300 font-bold outline-none"
+                    >
+                      <option value="Standard Rigid Tapping (G84 - Single Pass)">Standard Rigid Tapping (G84 - Single Pass)</option>
+                      <option value="Peck Chip-Break Tapping (G84 Q - Deep Hole)">Peck Chip-Break Tapping (G84 Q - Deep Hole)</option>
+                      <option value="Left-Hand Reverse Tapping (G74)">Left-Hand Reverse Tapping (G74)</option>
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {(operation === 'Drilling' || operation === 'Tapping') && (
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-400 block mb-1">Peck Depth Q (mm)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={mfgCfg.peckDepth || '8'}
+                    onChange={(e) => setMfgCfg({ ...mfgCfg, peckDepth: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 outline-none"
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -1519,6 +1561,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
+
 
 
 
