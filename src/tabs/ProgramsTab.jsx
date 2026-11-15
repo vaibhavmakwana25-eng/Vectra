@@ -13,37 +13,6 @@ const PROGRAM_MODES = [
   'Macro + Canned Cycle'
 ];
 
-function adaptCodeForMode(baseCode, mode, controller, domainKey, operation, workSide) {
-  if (!baseCode || mode === 'Canned Cycle Program') return baseCode;
-  const isSiemens = controller === 'Siemens';
-  const cmt = (txt) => (isSiemens ? `; ${txt}` : `(${txt})`);
-  if (mode === 'Macro Program (Custom Variables)') {
-    if (isSiemens) {
-      return domainKey === 'Turning'
-        ? `; SIEMENS MACRO - ${operation.toUpperCase()} (${workSide})\nDEF REAL START_DIA=50.0, FINAL_DIA=36.0, DEPTH_CUT=1.5, Z_LEN=-45.0, FEED_VAL=0.25\nG21 G90 G95 G40\nG75 X0 Z0\nT="CNMG_ROUGH" D1\nG96 S180 LIMS=2500 M3\nR1 = START_DIA\nLOOP_CUT:\nR1 = R1 - (DEPTH_CUT * 2)\nIF R1 < FINAL_DIA GOTOF END_LOOP\nG00 X=R1+2 Z2 M8\nG01 X=R1 F=FEED_VAL\nG01 Z=Z_LEN\nG00 X=R1+3\nG00 Z2\nGOTOB LOOP_CUT\nEND_LOOP:\nG01 X=FINAL_DIA F0.15\nG01 Z=Z_LEN\nG75 X0 Z0 M9\nM5\nM30`
-        : `; SIEMENS MACRO - ${operation.toUpperCase()}\nDEF REAL Z_FINAL=-30.0, PECK_STEP=4.0, R_PLANE=3.0, CUR_Z=0.0\nG21 G17 G90 G94 G40\nG75 Z0\nT="TOOL_01" D1\nM6\nG54 G00 X0 Y0\nS1800 M3 M8\nG00 Z=R_PLANE\nNEXT_PECK:\nCUR_Z = CUR_Z - PECK_STEP\nIF CUR_Z < Z_FINAL\n  CUR_Z = Z_FINAL\nENDIF\nG01 Z=CUR_Z F220\nG00 Z=R_PLANE\nIF CUR_Z > Z_FINAL GOTOB NEXT_PECK\nG75 Z0 M9\nM5\nM30`;
-    }
-    return domainKey === 'Turning'
-      ? `O9001 (${controller.toUpperCase()} MACRO - ${operation.toUpperCase()} ${workSide})\n#101 = 50.0 (START DIA)\n#102 = 36.0 (FINISH DIA)\n#103 = 1.5  (DOC)\n#104 = -45.0 (Z LENGTH)\n#105 = 0.25 (FEED)\nG21 G40 G99\nG28 U0. W0.\nT0101\nG50 S2500\nG96 S180 M03\n#110 = #101\nWHILE [#110 GT #102] DO1\n  #110 = #110 - [#103 * 2.0]\n  IF [#110 LT #102] THEN #110 = #102\n  G00 X[#110 + 2.0] Z2.0 M08\n  G01 X#110 F#105\n  G01 Z#104\n  G00 X[#110 + 3.0]\n  G00 Z2.0\nEND1\nG28 U0. W0. M09\nM05\nM30`
-      : `O9002 (${controller.toUpperCase()} MACRO - ${operation.toUpperCase()})\n#101 = -30.0 (TARGET Z)\n#102 = 4.0   (PECK Q)\n#103 = 3.0   (R-PLANE)\n#104 = 220.0 (FEED)\nG21 G17 G40 G49 G80 G90\nG91 G28 Z0.0\nT01 M06\nG90 G54 G00 X0.0 Y0.0\nS1800 M03\nG43 H01 Z10.0 M08\n#110 = 0.0\nWHILE [#110 GT #101] DO1\n  #110 = #110 - #102\n  IF [#110 LT #101] THEN #110 = #101\n  G00 Z[#110 + #102 + 1.0]\n  G01 Z#110 F#104\n  G00 Z#103\nEND1\nG91 G28 Z0.0 M09\nM05\nM30`;
-  }
-  if (mode === 'ISO G-Code and M-Code') {
-    return domainKey === 'Turning'
-      ? `${cmt(`ISO G-CODE & M-CODE (${controller.toUpperCase()} - ${workSide})`)}\n${isSiemens ? 'G21 G90 G95 G40\nG75 X0 Z0\nT="ISO_TOOL" D1\nG96 S200 LIMS=2800 M3' : 'O3001 (ISO LINEAR G01 G02 G03)\nG21 G40 G99\nG28 U0. W0.\nT0101\nG50 S2800\nG96 S200 M03'}\nG00 X52.0 Z2.0 M08\nG01 X20.0 Z0.0 F0.15\nG01 X24.0 Z-2.0\nG01 Z-25.0\nG02 X34.0 Z-30.0 R5.0\nG01 X40.0\nG01 Z-50.0\n${isSiemens ? 'G75 X0 Z0 M9\nM5\nM30' : 'G28 U0. W0. M09\nM05\nM30'}`
-      : `${cmt(`ISO G-CODE & M-CODE MILLING (${controller.toUpperCase()})`)}\n${isSiemens ? 'G21 G17 G90 G94 G40\nG75 Z0\nT="ENDMILL_12" D1\nM6\nG54 G00 X0 Y0\nS2400 M3 M8\nG00 Z10' : 'O3002 (ISO LINEAR & CIRCULAR MILLING)\nG21 G17 G40 G49 G80 G90\nG91 G28 Z0.0\nT01 M06\nG90 G54 G00 X0.0 Y0.0\nS2400 M03\nG43 H01 Z10.0 M08'}\nG01 Z-5.0 F200.0\nG41 D01 X25.0 Y0.0 F450.0\nG01 Y40.0\nG02 X35.0 Y50.0 R10.0\nG01 X70.0\nG01 Y0.0\nG40 G01 X0.0 Y0.0\n${isSiemens ? 'G75 Z0 M9\nM5\nM30' : 'G91 G28 Z0.0 M09\nM05\nM30'}`;
-  }
-  if (mode === 'ISO + Canned Cycle') {
-    const iso = isSiemens ? `; ISO FACE PASS + CANNED CYCLE\nG00 X52 Z2 M8\nG01 X-1 Z0 F0.15\n` : `(ISO FACE PASS + CANNED CYCLE)\nG00 X52.0 Z2.0 M08\nG01 X-1.0 Z0.0 F0.15\n`;
-    return `${iso}${baseCode}`;
-  }
-  if (mode === 'ISO + Macro Program') {
-    const vars = isSiemens ? `; MACRO VARS + ISO G-CODE\nDEF REAL SHIFT_X=0.0, SHIFT_Z=0.0\n` : `(MACRO VARS + ISO G-CODE)\n#501 = 0.0 (X SHIFT)\n#502 = 0.0 (Z SHIFT)\n`;
-    return `${vars}${adaptCodeForMode(baseCode, 'ISO G-Code and M-Code', controller, domainKey, operation, workSide)}`;
-  }
-  const mHead = isSiemens ? `; MACRO COUNTER + CANNED CYCLE\nDEF REAL QTY=5, CNT=1\nLOOP_PART:\n` : `(MACRO COUNTER + CANNED CYCLE)\n#500 = 5 (BATCH QTY)\n#501 = 1 (CURRENT PART)\nWHILE [#501 LE #500] DO1\n`;
-  const mFoot = isSiemens ? `\nCNT = CNT + 1\nIF CNT <= QTY GOTOB LOOP_PART\nM30` : `\n#501 = #501 + 1\nEND1\nM30`;
-  return `${mHead}${baseCode.replace(/\nM30\s*$/, '')}${mFoot}`;
-}
 function classifyTemplate(domainKey, name) {
   const n = name.toUpperCase();
   if (domainKey === 'Turning') {
@@ -54,7 +23,18 @@ function classifyTemplate(domainKey, name) {
     else if (n.includes('DRILL') || n.includes('TAP') || n.includes('REAM')) op = 'Drilling & Tapping';
 
     let side = 'OD';
-    if (n.includes(' ID ') || n.startsWith('G71 ID') || n.startsWith('G70 ID') || n.startsWith('G72 ID') || n.startsWith('G75 ID') || n.startsWith('G76 ID') || n.startsWith('G90 SINGLE-PASS ID') || n.startsWith('CYCLE95 ID') || n.startsWith('CYCLE93 ID') || n.startsWith('CYCLE97 ID')) {
+    if (
+      n.includes(' ID ') ||
+      n.startsWith('G71 ID') ||
+      n.startsWith('G70 ID') ||
+      n.startsWith('G72 ID') ||
+      n.startsWith('G75 ID') ||
+      n.startsWith('G76 ID') ||
+      n.startsWith('G90 SINGLE-PASS ID') ||
+      n.startsWith('CYCLE95 ID') ||
+      n.startsWith('CYCLE93 ID') ||
+      n.startsWith('CYCLE97 ID')
+    ) {
       side = 'ID';
     } else if (n.includes('FACE') || n.includes('FRONT') || n.includes('DRILL') || n.includes('TAP') || n.includes('REAM') || n.includes('G94')) {
       side = 'Face';
@@ -71,6 +51,170 @@ function classifyTemplate(domainKey, name) {
     else if (n.includes('DEEP') || n.includes('PECK') || n.includes('CHIP') || n.includes('FINE') || n.includes('BACK')) side = 'Deep & Precision';
     return { op, side };
   }
+}
+
+function adaptCodeForMode(baseCode, mode, controller, domainKey, operation, workSide) {
+  if (!baseCode || mode === 'Canned Cycle Program') return baseCode;
+
+  const isSiemens = controller === 'Siemens';
+  const cmt = (txt) => (isSiemens ? `; ${txt}` : `(${txt})`);
+
+  if (mode === 'Macro Program (Custom Variables)') {
+    if (isSiemens) {
+      if (domainKey === 'Turning') {
+        return `; SIEMENS R-VARIABLE IF-GOTOB MACRO - ${operation.toUpperCase()} (${workSide})
+R1=50.0  ; START DIAMETER
+R2=36.0  ; FINAL DIAMETER
+R3=1.5   ; RADIAL DEPTH OF CUT
+R4=-45.0 ; TARGET Z LENGTH
+R5=0.25  ; FEED RATE MM/REV
+G21 G90 G95 G40
+G75 X0 Z0
+T="CNMG_ROUGH" D1
+G96 S180 LIMS=2500 M3
+R10=R1
+LOOP_CUT:
+R10=R10-(R3*2)
+IF R10<R2
+  R10=R2
+ENDIF
+G00 X=R10+2 Z2 M8
+G01 X=R10 F=R5
+G01 Z=R4
+G00 X=R10+3
+G00 Z2
+IF R10>R2 GOTOB LOOP_CUT
+G75 X0 Z0 M9
+M5
+M30`;
+      }
+      return `; SIEMENS R-VARIABLE IF-GOTOB MACRO - ${operation.toUpperCase()}
+R1=-30.0 ; TARGET DEPTH Z
+R2=4.0   ; PECK STEP
+R3=3.0   ; R-PLANE CLEARANCE
+R4=220.0 ; FEED RATE
+R10=0.0  ; CURRENT Z DEPTH
+G21 G17 G90 G94 G40
+G75 Z0
+T="TOOL_01" D1
+M6
+G54 G00 X0 Y0
+S1800 M3 M8
+G00 Z=R3
+NEXT_PECK:
+R10=R10-R2
+IF R10<R1
+  R10=R1
+ENDIF
+G01 Z=R10 F=R4
+G00 Z=R3
+IF R10>R1 GOTOB NEXT_PECK
+G75 Z0 M9
+M5
+M30`;
+    } else {
+      if (domainKey === 'Turning') {
+        return `O9001 (${controller.toUpperCase()} IF-GOTO MACRO - ${operation.toUpperCase()} ${workSide})
+#101 = 50.0  (START DIAMETER)
+#102 = 36.0  (FINAL DIAMETER)
+#103 = 1.5   (RADIAL DEPTH OF CUT)
+#104 = -45.0 (TARGET Z LENGTH)
+#105 = 0.25  (FEED MM PER REV)
+G21 G40 G99
+G28 U0. W0.
+T0101
+G50 S2500
+G96 S180 M03
+#110 = #101
+N10 (LOOP START)
+#110 = #110 - [#103 * 2.0]
+IF [#110 LT #102] THEN #110 = #102
+G00 X[#110 + 2.0] Z2.0 M08
+G01 X#110 F#105
+G01 Z#104
+G00 X[#110 + 3.0]
+G00 Z2.0
+IF [#110 GT #102] GOTO10
+G00 X100.0 Z100.0 M09
+G28 U0. W0.
+M05
+M30`;
+      }
+      return `O9002 (${controller.toUpperCase()} IF-GOTO MACRO - ${operation.toUpperCase()})
+#101 = -30.0 (TARGET DEPTH Z)
+#102 = 4.0   (PECK STEP Q)
+#103 = 3.0   (R-PLANE CLEARANCE)
+#104 = 220.0 (FEED RATE)
+G21 G17 G40 G49 G80 G90
+G91 G28 Z0.0
+T01 M06
+G90 G54 G00 X0.0 Y0.0
+S1800 M03
+G43 H01 Z10.0 M08
+#110 = 0.0
+N10 (PECK LOOP)
+#110 = #110 - #102
+IF [#110 LT #101] THEN #110 = #101
+G00 Z[#110 + #102 + 1.0]
+G01 Z#110 F#104
+G00 Z#103
+IF [#110 GT #101] GOTO10
+G00 Z50.0 M09
+G91 G28 Z0.0
+M05
+M30`;
+    }
+  }
+
+  if (mode === 'ISO G-Code and M-Code') {
+    if (domainKey === 'Turning') {
+      return `${cmt(`ISO G-CODE & M-CODE (${controller.toUpperCase()} - ${workSide})`)}
+${isSiemens ? 'G21 G90 G95 G40\nG75 X0 Z0\nT="ISO_TOOL" D1\nG96 S200 LIMS=2800 M3' : 'O3001 (ISO LINEAR G01 G02 G03)\nG21 G40 G99\nG28 U0. W0.\nT0101\nG50 S2800\nG96 S200 M03'}
+G00 X52.0 Z2.0 M08
+G01 X20.0 Z0.0 F0.15
+G01 X24.0 Z-2.0
+G01 Z-25.0
+G02 X34.0 Z-30.0 R5.0
+G01 X40.0
+G01 Z-50.0
+G00 X55.0 Z10.0 M09
+${isSiemens ? 'G75 X0 Z0\nM5\nM30' : 'G28 U0. W0.\nM05\nM30'}`;
+    }
+    return `${cmt(`ISO G-CODE & M-CODE MILLING (${controller.toUpperCase()})`)}
+${isSiemens ? 'G21 G17 G90 G94 G40\nG75 Z0\nT="ENDMILL_12" D1\nM6\nG54 G00 X0 Y0\nS2400 M3 M8\nG00 Z10' : 'O3002 (ISO LINEAR & CIRCULAR MILLING)\nG21 G17 G40 G49 G80 G90\nG91 G28 Z0.0\nT01 M06\nG90 G54 G00 X0.0 Y0.0\nS2400 M03\nG43 H01 Z10.0 M08'}
+G01 Z-5.0 F200.0
+G41 D01 X25.0 Y0.0 F450.0
+G01 Y40.0
+G02 X35.0 Y50.0 R10.0
+G01 X70.0
+G01 Y0.0
+G40 G01 X0.0 Y0.0
+G00 Z50.0 M09
+${isSiemens ? 'G75 Z0\nM5\nM30' : 'G91 G28 Z0.0\nM05\nM30'}`;
+  }
+
+  if (mode === 'ISO + Canned Cycle') {
+    const isoHeader = isSiemens
+      ? `; ISO FACE PASS + CANNED CYCLE\nG00 X52 Z2 M8\nG01 X-1 Z0 F0.15\n`
+      : `(ISO FACE PASS + CANNED CYCLE)\nG00 X52.0 Z2.0 M08\nG01 X-1.0 Z0.0 F0.15\n`;
+    return `${isoHeader}${baseCode}`;
+  }
+
+  if (mode === 'ISO + Macro Program') {
+    const vars = isSiemens
+      ? `; SIEMENS R-VARIABLES + ISO G-CODE\nR1=0.0 ; X SHIFT OFFSET\nR2=0.0 ; Z SHIFT OFFSET\n`
+      : `(${controller.toUpperCase()} MACRO VARIABLES + ISO G-CODE)\n#501 = 0.0 (X SHIFT OFFSET)\n#502 = 0.0 (Z SHIFT OFFSET)\n`;
+    return `${vars}${adaptCodeForMode(baseCode, 'ISO G-Code and M-Code', controller, domainKey, operation, workSide)}`;
+  }
+
+  if (mode === 'Macro + Canned Cycle') {
+    if (isSiemens) {
+      return `; SIEMENS R-VARIABLE IF-GOTOB + CANNED CYCLE\nR1=5 ; BATCH QUANTITY\nR2=1 ; CURRENT PART\nLOOP_PART:\n${baseCode.replace(/\nM30\s*$/, '')}\nR2=R2+1\nIF R2<=R1 GOTOB LOOP_PART\nM30`;
+    }
+    return `(${controller.toUpperCase()} IF-GOTO MACRO + CANNED CYCLE)\n#500 = 5 (BATCH QUANTITY)\n#501 = 1 (CURRENT PART)\nN10 (BATCH LOOP)\n${baseCode.replace(/\nM30\s*$/, '')}\n#501 = #501 + 1\nIF [#501 LE #500] GOTO10\nM30`;
+  }
+
+  return baseCode;
 }
 
 export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhatsApp }) {
@@ -134,7 +278,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   useEffect(() => {
     setSelectedTemplateIdx(0);
     if (filteredTemplates[0]) {
-      setTitle(filteredTemplates[0].name + " [" + programMode + "]");
+      setTitle(filteredTemplates[0].name + ' [' + programMode + ']');
       setCode(adaptCodeForMode(filteredTemplates[0].code, programMode, controller, domainKey, operation, workSide));
     }
   }, [filteredTemplates, programMode, controller, domainKey, operation, workSide]);
@@ -156,7 +300,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     const i = Number(idx);
     setSelectedTemplateIdx(i);
     if (filteredTemplates[i]) {
-      setTitle(filteredTemplates[i].name + " [" + programMode + "]");
+      setTitle(filteredTemplates[i].name + ' [' + programMode + ']');
       setCode(adaptCodeForMode(filteredTemplates[i].code, programMode, controller, domainKey, operation, workSide));
     }
   };
@@ -172,9 +316,9 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     if (!title || !code) return;
     await db.programs.add({
       title,
-      machineType: `${machineType} (${machineModel})`,
+      machineType: machineType + ' (' + machineModel + ')',
       controller,
-      operation: `${operation} (${workSide})`,
+      operation: operation + ' • ' + workSide + ' • ' + programMode,
       code,
       notes: '',
       createdAt: new Date().toISOString().split('T')[0],
@@ -283,7 +427,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
           </div>
         </div>
 
-                {/* LINE 3: Program Structure Mode Cascade */}
+        {/* LINE 3: Program Structure Mode Cascade */}
         <div>
           <label className="block text-[11px] font-semibold text-cyan-300 mb-1">
             Program Structure Mode (Cycle • Macro • ISO G-Code & M-Code)
@@ -303,7 +447,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
         <div className="bg-slate-950/80 border border-cyan-500/30 rounded-xl p-3 space-y-2.5">
           <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-300">
             <Layers className="w-4 h-4" />
-            <span>Quick Cycle Template ({controller} • {operation} • {workSide})</span>
+            <span>Quick Template ({controller} • {operation} • {workSide} • {programMode})</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -332,7 +476,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
           </div>
         </div>
 
-        {/* G-Code Editor + Action Bar */}
+        {/* G-Code Editor + Action Bar (Full Expanded View) */}
         <form onSubmit={saveProgram} className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Sample / Active G-Code</span>
@@ -347,10 +491,10 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
           </div>
 
           <textarea
-            rows="11"
+            rows="28"
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xs font-mono text-emerald-300 leading-relaxed focus:border-cyan-500 outline-none"
+            className="w-full min-h-[560px] bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs font-mono text-emerald-300 leading-relaxed focus:border-cyan-500 outline-none"
             required
           />
 
@@ -389,7 +533,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                 {shareOnWhatsApp && (
                   <button
                     type="button"
-                    onClick={() => shareOnWhatsApp(`*CNC Program: ${p.title}* (${p.controller})\n\n${p.code}`)}
+                    onClick={() => shareOnWhatsApp('*CNC Program: ' + p.title + '* (' + p.controller + ')\n\n' + p.code)}
                     className="p-2 bg-emerald-600/20 text-emerald-400 rounded-lg"
                   >
                     <Share2 className="w-4 h-4" />
@@ -397,7 +541,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                 )}
               </div>
             </div>
-            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-40">
+            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">
               {p.code}
             </pre>
           </div>
@@ -406,8 +550,3 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
-
-
-
-
-
