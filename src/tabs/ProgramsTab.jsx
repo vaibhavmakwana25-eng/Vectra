@@ -503,6 +503,53 @@ M30`;
   return `${header}\n${compensatedBase}`;
 }
 
+
+const buildTurnMillSampleCode = (ctrlName = 'Fanuc') => {
+  const u = String(ctrlName || '').toUpperCase();
+  if (u.includes('SIEMENS')) {
+    return [
+      '; SIEMENS SINUMERIK - TURN-MILL LIVE TOOL',
+      'T1 D1',
+      'SPOS=0',
+      'G94 S1500 M13',
+      'CYCLE83(5.0, 0.0, 2.0, -12.0, , 4.0, , , , , 1)',
+      'G00 Z150.0 M05',
+      'M30'
+    ].join('\n');
+  }
+  if (u.includes('MITSUBISHI')) {
+    return [
+      '%',
+      'O6001 (MITSUBISHI TURN-MILL LIVE TOOL)',
+      'G21 G40 G80 G94 G54 G90',
+      'T01 M06',
+      'G00 C0.0',
+      'S1500 M13',
+      'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
+      'G80',
+      'G00 Z100.0 M05',
+      'M30',
+      '%'
+    ].join('\n');
+  }
+  return [
+    '%',
+    'O6001 (FANUC TURN-MILL / C-AXIS LIVE TOOL)',
+    'G21 G40 G80 G94 G54 G90',
+    'T01 M06',
+    'S1500 M13',
+    'G00 C0.0 Z10.0',
+    'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
+    'G80',
+    'G00 C90.0',
+    'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
+    'G80',
+    'G00 Z100.0 M05',
+    'M30',
+    '%'
+  ].join('\n');
+};
+
 export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhatsApp }) {
   const categories = Object.keys(JYOTI_MACHINE_CASCADE);
   const initialCategory = categories[0] || 'Turning';
@@ -682,7 +729,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
 
   const operationOptions = useMemo(() => {
     if (domainKey === 'Turning') {
-      return ['Turning', 'Facing', 'Boring', 'Threading', 'Grooving', 'Parting', 'Drilling', 'Tapping'];
+      return ['Turning', 'Facing', 'Boring', 'Threading', 'Grooving', 'Parting', 'Drilling', 'Tapping', 'Turn-Mill'];
     }
     return ['Pocket Milling', 'Spigot Milling', 'Slot Milling', 'Face Milling', 'Drilling', 'Tapping', 'Boring', 'Reaming'];
   }, [domainKey]);
