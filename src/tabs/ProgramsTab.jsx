@@ -503,6 +503,342 @@ M30`;
   return `${header}\n${compensatedBase}`;
 }
 
+
+function buildFanucIfGotoMacro({
+  isTurn = true,
+  isID = false,
+  isThread = false,
+  isGroove = false,
+  isFace = false,
+  isDrill = false,
+  isTap = false,
+  operation = 'OD Turning',
+  rawOD = 50,
+  finOD = 32,
+  partLen = 45,
+  rawID = 18,
+  depth = 10,
+  peck = 5,
+  pitch = 1.5,
+  majDia = 24,
+  minDia = 21.5,
+  rpm = 1200,
+  feed = 0.22,
+  diaStock = 0.5,
+  lenStock = 0.2,
+  drillMode = '',
+  tapMode = ''
+}) {
+  const lines = [
+    '%',
+    'O5001 (FANUC IF-GOTO MACRO - ' + String(operation).toUpperCase() + ')',
+    'G21 G40 G80 G97 ' + (isTurn ? 'G99' : 'G94 G54 G90')
+  ];
+  if (isTurn) {
+    lines.push('#101 = ' + rawOD.toFixed(3) + ' (RAW DIA)');
+    lines.push('#102 = ' + finOD.toFixed(3) + ' (TARGET DIA)');
+    lines.push('#103 = ' + partLen.toFixed(3) + ' (LENGTH Z)');
+    lines.push('#104 = 1.500 (DOC STEP)');
+    lines.push('#105 = ' + diaStock.toFixed(3) + ' (FINISH STOCK)');
+    lines.push('T0101');
+    lines.push('G96 S' + Math.min(450, Math.max(80, Math.round(rpm / 5))) + ' M03');
+    if (isThread) {
+      const tLen = Math.min(partLen - 2, 30);
+      lines.push('#110 = ' + majDia.toFixed(3) + ' (MAJOR DIA)');
+      lines.push('#111 = ' + minDia.toFixed(3) + ' (MINOR DIA)');
+      lines.push('#112 = ' + pitch.toFixed(3) + ' (PITCH)');
+      lines.push('#113 = 0.250 (PASS STEP)');
+      lines.push('#114 = #110');
+      lines.push('G97 S' + Math.min(1500, rpm) + ' M03');
+      lines.push('G00 X' + (majDia + 5).toFixed(2) + ' Z4.0');
+      lines.push('N10');
+      lines.push('#114 = #114 - #113');
+      lines.push('IF [#114 GE #111] GOTO 20');
+      lines.push('#114 = #111');
+      lines.push('N20');
+      lines.push('G00 X' + (majDia + 3).toFixed(2));
+      lines.push('G32 X#114 Z-' + tLen.toFixed(2) + ' F#112');
+      lines.push('G00 X' + (majDia + 5).toFixed(2));
+      lines.push('Z4.0');
+      lines.push('IF [#114 GT #111] GOTO 10');
+      lines.push('GOTO 90');
+    } else if (isGroove) {
+      const gZ = -Math.min(partLen - 4, 22);
+      const gEnd = isID ? finOD + 4 : Math.max(6, finOD - 6);
+      lines.push('#110 = ' + gZ.toFixed(2));
+      lines.push('#111 = ' + gEnd.toFixed(2));
+      lines.push('#112 = 1.200');
+      lines.push('#113 = #101');
+      lines.push('G00 X' + (rawOD + 4).toFixed(2) + ' Z#110');
+      lines.push('N10');
+      lines.push('#113 = #113 - #112');
+      lines.push('IF [#113 GE #111] GOTO 20');
+      lines.push('#113 = #111');
+      lines.push('N20');
+      lines.push('G01 X#113 F' + (feed * 0.4).toFixed(3));
+      lines.push('G00 X' + (rawOD + 4).toFixed(2));
+      lines.push('IF [#113 GT #111] GOTO 10');
+      lines.push('GOTO 90');
+    } else if (isDrill || isTap) {
+      const hDepth = Math.min(partLen, Math.max(5, depth));
+      lines.push('#120 = ' + peck.toFixed(2) + ' (PECK Q)');
+      lines.push('#121 = ' + hDepth.toFixed(2) + ' (DEPTH Z)');
+      lines.push('#122 = 0.0');
+      lines.push('G97 S' + rpm + ' M03');
+      lines.push('G00 X0.0 Z5.0');
+      if (isTap && !tapMode.includes('Peck')) {
+        lines.push('M29 S' + rpm);
+        lines.push((tapMode.includes('G74') ? 'G74' : 'G84') + ' X0.0 Z-#121 R2.0 F' + pitch.toFixed(2));
+        lines.push('G80');
+        lines.push('GOTO 90');
+      } else {
+        lines.push('N10');
+        lines.push('#122 = #122 + #120');
+        lines.push('IF [#122 LE #121] GOTO 20');
+        lines.push('#122 = #121');
+        lines.push('N20');
+        lines.push('G01 Z-[0 - #122] F' + (isTap ? pitch.toFixed(2) : feed.toFixed(3)));
+        lines.push('G00 Z' + (drillMode.includes('G73') ? '[0 - #122 + 1.5]' : '3.0'));
+        lines.push('IF [#122 LT #121] GOTO 10');
+        lines.push('GOTO 90');
+      }
+    } else if (isFace) {
+      const fDepth = Math.min(6, Math.max(1, depth));
+      lines.push('#110 = 1.000');
+      lines.push('#111 = ' + fDepth.toFixed(2));
+      lines.push('#112 = 0.0');
+      lines.push('N10');
+      lines.push('#112 = #112 + #110');
+      lines.push('IF [#112 LE #111] GOTO 20');
+      lines.push('#112 = #111');
+      lines.push('N20');
+      lines.push('G00 X' + (rawOD + 3).toFixed(2) + ' Z-[0 - #112 - 1.0]');
+      lines.push('G01 X' + (isID ? rawID : 0).toFixed(2) + ' F' + feed.toFixed(3));
+      lines.push('G00 Z2.0');
+      lines.push('IF [#112 LT #111] GOTO 10');
+      lines.push('GOTO 90');
+    } else {
+      const roughTarget = isID ? Math.max(rawID, finOD - diaStock) : finOD + diaStock;
+      const zCut = Math.max(5, partLen - lenStock);
+      lines.push('#106 = #101');
+      lines.push('#107 = ' + roughTarget.toFixed(3));
+      lines.push('N10');
+      lines.push('#106 = ' + (isID ? '#106 + #104' : '#106 - #104'));
+      if (isID) {
+        lines.push('IF [#106 LE #107] GOTO 20');
+        lines.push('#106 = #107');
+      } else {
+        lines.push('IF [#106 GE #107] GOTO 20');
+        lines.push('#106 = #107');
+      }
+      lines.push('N20');
+      lines.push('G00 X' + (isID ? rawID - 2 : rawOD + 3).toFixed(2) + ' Z1.0');
+      lines.push('G01 X#106 Z0.0 F' + feed.toFixed(3));
+      lines.push('Z-' + zCut.toFixed(2) + ' F' + (feed * 0.85).toFixed(3));
+      lines.push('G01 X' + (isID ? rawID - 2 : rawOD + 3).toFixed(2));
+      lines.push('IF [' + (isID ? '#106 LT #107' : '#106 GT #107') + '] GOTO 10');
+      lines.push('GOTO 50');
+      lines.push('N50');
+      lines.push('G00 X' + finOD.toFixed(3) + ' Z1.0');
+      lines.push('G01 Z-' + partLen.toFixed(2) + ' F' + (feed * 0.5).toFixed(3));
+      lines.push('GOTO 90');
+    }
+    lines.push('N90');
+    lines.push('G00 X120.0 Z100.0 M05');
+    lines.push('M30');
+    lines.push('%');
+    return lines.join('\n');
+  }
+
+  lines.push('#101 = ' + depth.toFixed(2) + ' (TOTAL Z DEPTH)');
+  lines.push('#102 = ' + Math.max(1, peck).toFixed(2) + ' (Z STEP Q)');
+  lines.push('#103 = ' + Math.max(5, finOD * 0.6).toFixed(2) + ' (RADIUS / HALF-W)');
+  lines.push('#104 = 0.0');
+  lines.push('T01 M06');
+  lines.push('S' + rpm + ' M03');
+  lines.push('G43 H01 Z20.0');
+  if (isDrill || isTap) {
+    lines.push('G00 X0.0 Y0.0 Z5.0');
+    if (isTap && !tapMode.includes('Peck')) {
+      lines.push('M29 S' + rpm);
+      lines.push((tapMode.includes('G74') ? 'G74' : 'G84') + ' X0.0 Y0.0 Z-#101 R2.0 F' + pitch.toFixed(2));
+      lines.push('G80');
+      lines.push('GOTO 90');
+    } else {
+      lines.push('N10');
+      lines.push('#104 = #104 + #102');
+      lines.push('IF [#104 LE #101] GOTO 20');
+      lines.push('#104 = #101');
+      lines.push('N20');
+      lines.push('G01 Z-[0 - #104] F' + (isTap ? pitch.toFixed(2) : Math.max(80, Math.round(feed * 0.5))));
+      lines.push('G00 Z' + (drillMode.includes('G73') ? '[0 - #104 + 1.5]' : '3.0'));
+      lines.push('IF [#104 LT #101] GOTO 10');
+      lines.push('GOTO 90');
+    }
+  } else {
+    lines.push('N10');
+    lines.push('#104 = #104 + #102');
+    lines.push('IF [#104 LE #101] GOTO 20');
+    lines.push('#104 = #101');
+    lines.push('N20');
+    lines.push('G00 X-[0 - #103] Y0.0 Z2.0');
+    lines.push('G01 Z-[0 - #104] F' + Math.max(80, Math.round(feed * 0.5)));
+    lines.push('G02 I#103 J0.0 F' + feed);
+    lines.push('IF [#104 LT #101] GOTO 10');
+    lines.push('GOTO 90');
+  }
+  lines.push('N90');
+  lines.push('G00 Z50.0 M05');
+  lines.push('M30');
+  lines.push('%');
+  return lines.join('\n');
+}
+
+function buildUniversalControllerProgram({
+  controller = 'Siemens',
+  domainKey = 'Turning',
+  machineType = 'CNC Lathe',
+  workSide = 'OD',
+  operation = 'OD Turning',
+  templateName = '',
+  mfgCfg = {}
+}) {
+  const ctrl = String(controller || 'Siemens').toUpperCase();
+  const isTurn = domainKey === 'Turning' || machineType === 'VTL';
+  const isID = workSide === 'ID' || String(operation || '').toUpperCase().includes('ID');
+  const opUp = (String(operation || '') + ' ' + String(templateName || '') + ' ' + String(workSide || '')).toUpperCase();
+
+  const rawOD = Number(mfgCfg.stockX || 50);
+  const finOD = Number(mfgCfg.stockY || 32);
+  const partLen = Math.max(10, Number(mfgCfg.stockZ || 45));
+  const rawID = Number(mfgCfg.rawIdDia || 18);
+  const depth = Math.abs(Number(mfgCfg.featureDepth || 10));
+  const peck = Math.max(1, Number(mfgCfg.peckDepth || 8));
+  const pitch = Number(mfgCfg.threadPitch || mfgCfg.tapPitch || 1.5);
+  const majDia = Number(mfgCfg.threadMajorDia || mfgCfg.tapDia || 24);
+  const minDia = Number(mfgCfg.threadMinorDia || Math.max(4, majDia - pitch * 1.25));
+  const rpm = Number(mfgCfg.spindleRpm || 1200);
+  const feed = Number(mfgCfg.feedRate || (isTurn ? 0.22 : 250));
+  const drillMode = mfgCfg.drillMode || 'Deep Hole Peck Drilling (G83 - Full Retract)';
+  const tapMode = mfgCfg.tapMode || 'Standard Rigid Tapping (G84 - Single Pass)';
+
+  const isThread = opUp.includes('THREAD');
+  const isGroove = opUp.includes('GROOVE') || opUp.includes('PART');
+  const isFace = opUp.includes('FACE') || opUp === 'FACING';
+  const isDrill = opUp.includes('DRILL') || opUp.includes('BORE') || opUp.includes('REAM');
+  const isTap = opUp.includes('TAP');
+  const isPocket = opUp.includes('POCKET');
+  const isSpigot = opUp.includes('SPIGOT') || opUp.includes('CONTOUR') || opUp.includes('PROFILE');
+
+  if (ctrl.includes('SIEMENS')) {
+    const lines = [
+      '; CONTROLLER : SIEMENS SINUMERIK 828D / 840D',
+      '; OPERATION  : ' + operation,
+      'WORKPIECE(,,,"CYLINDER",0,-' + partLen.toFixed(1) + ',-' + (partLen + 15).toFixed(1) + ',' + rawOD.toFixed(1) + ')',
+      'T1 D1',
+      'G95 S' + rpm + ' M03'
+    ];
+    if (isTurn) {
+      if (isThread) {
+        lines.push('CYCLE97(' + pitch.toFixed(2) + ', 2.0, 1.0, 2.0, ' + majDia.toFixed(2) + ', ' + minDia.toFixed(2) + ', 0.0, -' + Math.min(partLen - 2, 30).toFixed(1) + ', 0.0, 0.0, 1, 1, 3, 0, 1)');
+      } else if (isGroove) {
+        lines.push('CYCLE93(-' + Math.min(partLen - 4, 22).toFixed(1) + ', ' + (isID ? finOD + 4 : Math.max(6, finOD - 6)).toFixed(2) + ', 3.0, 1.5, 0.2, 0.1, 0.1, ' + feed + ', 1, 0)');
+      } else if (isDrill) {
+        const cName = drillMode.includes('G81') ? 'CYCLE81' : 'CYCLE83';
+        const vari = drillMode.includes('G73') ? 0 : 1;
+        lines.push(cName + '(5.0, 0.0, 2.0, -' + Math.min(partLen, 40).toFixed(1) + ', , ' + peck.toFixed(1) + ', , , , , ' + vari + ')');
+      } else if (isTap) {
+        lines.push('CYCLE84(5.0, 0.0, 2.0, -' + Math.min(partLen, 35).toFixed(1) + ', , ' + pitch.toFixed(2) + ', 3, ' + rpm + ', ' + rpm + ', 0.0, 0, 1, 0)');
+      } else {
+        lines.push('CYCLE95("ROUGH_PROF", ' + Number(mfgCfg.diaFinishStock ?? 0.5).toFixed(2) + ', ' + Number(mfgCfg.lenFinishStock ?? 0.2).toFixed(2) + ', 0.1, ' + feed + ', ' + (feed * 0.6) + ', ' + feed + ', ' + (isID ? 102 : 101) + ', 0, 0, 0)');
+        lines.push('ROUGH_PROF:');
+        lines.push('G01 X' + finOD.toFixed(2) + ' Z0.0');
+        lines.push('Z-' + partLen.toFixed(1));
+      }
+      lines.push('G00 X120.0 Z100.0 M05');
+      lines.push('M30');
+    } else {
+      lines.push('G94 G54');
+      if (isFace) {
+        lines.push('CYCLE61(5.0, 0.0, 2.0, -' + Math.min(6, depth).toFixed(1) + ', ' + rawOD.toFixed(1) + ', ' + finOD.toFixed(1) + ', 0.0, 0.0, 0.0, 0.2, 75.0, ' + feed + ', 1, 1)');
+      } else if (isPocket) {
+        const pCycle = opUp.includes('CIRCULAR') ? 'POCKET4' : 'POCKET3';
+        lines.push(pCycle + '(5.0, 0.0, 2.0, -' + depth.toFixed(1) + ', ' + rawOD.toFixed(1) + ', ' + finOD.toFixed(1) + ', 0.0, 0.0, 0.0, ' + peck.toFixed(1) + ', 0.3, 0.2, ' + feed + ', ' + (feed * 0.7) + ', 1, 21)');
+      } else if (isSpigot) {
+        lines.push('CYCLE76(5.0, 0.0, 2.0, -' + depth.toFixed(1) + ', ' + rawOD.toFixed(1) + ', ' + finOD.toFixed(1) + ', 0.0, 0.0, 0.0, 0.3, 0.2, ' + feed + ', ' + (feed * 0.7) + ', 1, 0, 1)');
+      } else if (isTap) {
+        lines.push('CYCLE84(5.0, 0.0, 2.0, -' + depth.toFixed(1) + ', , ' + pitch.toFixed(2) + ', 3, ' + rpm + ', ' + rpm + ', 0.0, 0, 1, 0)');
+      } else {
+        const cName = drillMode.includes('G81') ? 'CYCLE81' : 'CYCLE83';
+        const vari = drillMode.includes('G73') ? 0 : 1;
+        lines.push(cName + '(5.0, 0.0, 2.0, -' + depth.toFixed(1) + ', , ' + peck.toFixed(1) + ', , , , , ' + vari + ')');
+      }
+      lines.push('G00 Z100.0 M05');
+      lines.push('M30');
+    }
+    return lines.join('\n');
+  }
+
+  if (ctrl.includes('MITSUBISHI')) {
+    const gDrill = drillMode.includes('G81') ? 'G81' : drillMode.includes('G73') ? 'G73' : 'G83';
+    const gTap = tapMode.includes('G74') ? 'G74' : 'G84';
+    const lines = [
+      '%',
+      'O2002 (MITSUBISHI M80 - ' + String(operation).toUpperCase() + ')',
+      'G21 G40 G80 G97 ' + (isTurn ? 'G99' : 'G94 G54 G90'),
+      'T0101',
+      'S' + rpm + ' M03'
+    ];
+    if (isTap) {
+      lines.push(gTap + ' X0.0 ' + (isTurn ? '' : 'Y0.0 ') + 'Z-' + Math.min(partLen, depth).toFixed(1) + (tapMode.includes('Peck') ? ' Q' + peck.toFixed(1) : '') + ' R2.0 F' + pitch.toFixed(2) + ' ,R1');
+      lines.push('G80');
+    } else if (isDrill) {
+      lines.push(gDrill + ' X0.0 ' + (isTurn ? '' : 'Y0.0 ') + 'Z-' + Math.min(partLen, depth).toFixed(1) + (gDrill === 'G81' ? '' : ' Q' + peck.toFixed(1)) + ' R2.0 F' + feed);
+      lines.push('G80');
+    } else if (isTurn) {
+      lines.push('G71 U1.5 R0.5');
+      lines.push('G71 P10 Q20 U0.3 W0.1 F' + feed);
+      lines.push('N10 G00 X' + finOD.toFixed(2));
+      lines.push('G01 Z-' + partLen.toFixed(1) + ' F' + (feed * 0.6).toFixed(2));
+      lines.push('N20 G01 X' + (rawOD + 2).toFixed(2));
+    } else {
+      lines.push('G00 X-35.0 Y0.0 Z2.0');
+      lines.push('G01 Z-' + depth.toFixed(1) + ' F' + Math.max(80, Math.round(feed * 0.5)));
+      lines.push('G41 G01 X0.0 Y0.0 F' + feed);
+      lines.push('G40 G00 Z50.0 M05');
+    }
+    lines.push((isTurn ? 'G28 U0. W0. ' : '') + 'M30');
+    lines.push('%');
+    return lines.join('\n');
+  }
+
+  return buildFanucIfGotoMacro({
+    isTurn,
+    isID,
+    isThread,
+    isGroove,
+    isFace,
+    isDrill,
+    isTap,
+    operation,
+    rawOD,
+    finOD,
+    partLen,
+    rawID,
+    depth,
+    peck,
+    pitch,
+    majDia,
+    minDia,
+    rpm,
+    feed,
+    diaStock: Number(mfgCfg.diaFinishStock ?? 0.5),
+    lenStock: Number(mfgCfg.lenFinishStock ?? 0.2),
+    drillMode,
+    tapMode
+  });
+}
+
 export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhatsApp }) {
   const categories = Object.keys(JYOTI_MACHINE_CASCADE);
   const initialCategory = categories[0] || 'Turning';
@@ -799,7 +1135,8 @@ const [controller, setController] = useState(CONTROLLERS[0] || 'Fanuc');
         </div>
 
         {/* LINE 1: Controller | Machine Category | Machine Series */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="mb-3 p-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-bold text-slate-300">CNC Controller Syntax</div><div className="flex items-center gap-1.5">{['Siemens', 'Fanuc', 'Mitsubishi'].map((brand) => (<button key={brand} type="button" onClick={() => setControllerBrand(brand)} className={`px-3 py-1 rounded-lg text-xs font-bold border ${controllerBrand === brand ? 'bg-cyan-500/25 text-cyan-200 border-cyan-400' : 'bg-slate-950 text-slate-400 border-slate-800'}`}>{brand === 'Siemens' ? 'Siemens (CYCLE)' : brand === 'Fanuc' ? 'Fanuc (IF/GOTO Macro)' : 'Mitsubishi (M80)'}</button>))}</div></div>
+<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="block text-[11px] font-semibold text-slate-400 mb-1">Controller</label>
             <select
