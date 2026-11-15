@@ -1599,9 +1599,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                 )}
               </div>
             </div>
-            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">
-              {p.code}
-            </pre>
+            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{operation === 'Turn-Mill' ? buildTurnMillSampleCode(controller, operation) : (p.code)}</pre>
           </div>
         ))}
       </div>
