@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Play, Pause, RotateCcw, Box, ZoomIn, ZoomOut, Scissors } from 'lucide-react';
 
-function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
+function buildStepMoves(code, domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
   const tName = (templateName + ' ' + workSide).toUpperCase();
   const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
@@ -22,26 +22,74 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
     const isID = workSide === 'ID';
     const isFace = workSide === 'Face' || operation === 'Facing';
 
+    // Maintain monotonic cut progress along Z so cut material NEVER refills
+    const zSlices = 18;
+    const stepProfile = [];
+    for (let k = 0; k <= zSlices; k++) {
+      stepProfile.push(rawOD);
+    }
+    const boreProfile = [];
+    for (let k = 0; k <= zSlices; k++) {
+      boreProfile.push(isID ? Math.max(8, rawID) : 0);
+    }
+    let maxCutFraction = 0;
+
+    const snapshot = (zVal, curDia, rapid, passType, gcode) => {
+      const distFromFace = Math.max(0, Math.min(partLen, -zVal));
+      const frac = Math.min(1, distFromFace / partLen);
+      const sliceIdx = Math.min(zSlices, Math.floor(frac * zSlices));
+
+      if (!rapid) {
+        if (frac > maxCutFraction) maxCutFraction = frac;
+        for (let i = 0; i <= sliceIdx; i++) {
+          if (isID) {
+            boreProfile[i] = Math.max(boreProfile[i], curDia);
+          } else {
+            stepProfile[i] = Math.min(stepProfile[i], curDia);
+          }
+        }
+      }
+
+      const activeCutFrac = Math.max(maxCutFraction, frac);
+      moves.push({
+        x: curDia,
+        y: 0,
+        z: zVal,
+        rapid,
+        passType,
+        odProfile: [...stepProfile],
+        idProfile: [...boreProfile],
+        curOD: isID ? rawOD : stepProfile[Math.max(0, sliceIdx)],
+        curID: isID ? boreProfile[Math.max(0, sliceIdx)] : 0,
+        cutFrac: activeCutFrac,
+        gcode
+      });
+    };
+
     if (operation === 'Drilling' || operation === 'Tapping') {
       const drillDia = operation === 'Tapping'
         ? Math.max(3, Number(mfgCfg.tapDia || 10) - Number(mfgCfg.tapPitch || 1.5))
         : Number(mfgCfg.drillDia || 16);
       const peck = Math.max(4, Number(mfgCfg.peckDepth || 10));
-      let maxDrilledZ = 0;
-      moves.push({ x: 0, y: 0, z: 5, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: 0, curID: 0, passZ: 0, prevPassZ: 0, gcode: `G00 X0.0 Z5.0 (${operation} Ø${drillDia.toFixed(1)})` });
+      snapshot(5, 0, true, 'rapid', `G00 X0.0 Z5.0 (${operation} Ø${drillDia.toFixed(1)})`);
       for (let d = -peck; d >= -Math.min(45, partLen); d -= peck) {
-        for (let s = 1; s <= 3; s++) {
-          const zNow = Math.abs((d * s) / 3);
-          maxDrilledZ = Math.max(maxDrilledZ, zNow);
-          moves.push({ x: 0, y: 0, z: -zNow, rapid: false, passType: 'rough', prevOD: rawOD, curOD: rawOD, prevID: drillDia, curID: drillDia, passZ: maxDrilledZ, prevPassZ: maxDrilledZ, gcode: `G01 Z-${zNow.toFixed(1)} F0.12` });
+        for (let s = 1; s <= 6; s++) {
+          const zNow = (d * s) / 6;
+          for (let i = 0; i <= zSlices; i++) {
+            if ((i / zSlices) * partLen <= Math.abs(zNow)) {
+              boreProfile[i] = Math.max(boreProfile[i], drillDia);
+            }
+          }
+          snapshot(zNow, 0, false, 'rough', `G01 Z${zNow.toFixed(1)} F0.12`);
         }
-        moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: drillDia, curID: drillDia, passZ: maxDrilledZ, prevPassZ: maxDrilledZ, gcode: `G00 Z4.0 (PECK RETRACT)` });
+        snapshot(4, 0, true, 'rapid', `G00 Z4.0 (CHIP BREAK RETRACT)`);
       }
-      moves.push({ x: 0, y: 0, z: 18, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: drillDia, curID: drillDia, passZ: maxDrilledZ, prevPassZ: maxDrilledZ, gcode: `G28 U0. W0. M05` });
+      snapshot(18, 0, true, 'rapid', `G28 U0. W0. M05`);
     } else if (operation === 'Threading') {
       const majDia = Number(mfgCfg.threadMajorDia || 24);
       const minDia = Number(mfgCfg.threadMinorDia || 20.32);
       const baseOD = isID ? rawOD : majDia;
+      for (let i = 0; i <= zSlices; i++) stepProfile[i] = baseOD;
       const safeX = isID ? minDia - 6 : majDia + 6;
       const targetLen = Math.min(35, partLen - 5);
       const passRatios = [0.35, 0.65, 0.88, 1.0];
@@ -49,107 +97,100 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
         const px = isID
           ? minDia + (majDia - minDia) * ratio
           : majDia - (majDia - minDia) * ratio;
-        moves.push({ x: safeX, y: 0, z: 4, rapid: true, passType: 'rapid', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G00 X${safeX.toFixed(1)} Z4.0 (THREAD PASS ${idx + 1}/4)` });
-        moves.push({ x: px, y: 0, z: 4, rapid: true, passType: 'rapid', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G00 X${px.toFixed(3)}` });
-        for (let s = 1; s <= 4; s++) {
-          const zStep = -(targetLen * s) / 4;
-          moves.push({ x: px, y: 0, z: zStep, rapid: false, passType: idx === 3 ? 'finish' : 'rough', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G76 X${px.toFixed(3)} Z${zStep.toFixed(1)} F${mfgCfg.threadPitch || 3.0}` });
+        snapshot(4, safeX, true, 'rapid', `G00 X${safeX.toFixed(1)} Z4.0 (THREAD PASS ${idx + 1}/4)`);
+        snapshot(4, px, true, 'rapid', `G00 X${px.toFixed(3)}`);
+        for (let s = 1; s <= 8; s++) {
+          const zStep = -(targetLen * s) / 8;
+          snapshot(zStep, px, false, idx === 3 ? 'finish' : 'rough', `G76 X${px.toFixed(3)} Z${zStep.toFixed(1)} F${mfgCfg.threadPitch || 3.0}`);
         }
-        moves.push({ x: safeX, y: 0, z: -targetLen, rapid: true, passType: 'rapid', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G00 X${safeX.toFixed(1)} (RETRACT)` });
+        snapshot(-targetLen, safeX, true, 'rapid', `G00 X${safeX.toFixed(1)} (RETRACT)`);
       });
-      moves.push({ x: safeX, y: 0, z: 16, rapid: true, passType: 'rapid', prevOD: baseOD, curOD: baseOD, prevID: isID ? minDia : 0, curID: isID ? minDia : 0, passZ: targetLen, prevPassZ: targetLen, gcode: `G28 U0. W0. M05` });
+      snapshot(16, safeX, true, 'rapid', `G28 U0. W0. M05`);
     } else if (isFace) {
       [-0.8, -1.6, -2.4].forEach((fz, idx) => {
-        moves.push({ x: rawOD + 3, y: 0, z: fz, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: Math.abs(fz), prevPassZ: Math.abs(fz), gcode: `G00 X${(rawOD + 3).toFixed(1)} Z${fz}` });
-        for (let s = 1; s <= 4; s++) {
-          const xStep = rawOD - ((rawOD - (isID ? rawID : 0)) * s) / 4;
-          moves.push({ x: xStep, y: 0, z: fz, rapid: false, passType: idx === 2 ? 'finish' : 'rough', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: Math.abs(fz), prevPassZ: Math.abs(fz), gcode: `G01 X${xStep.toFixed(1)} Z${fz} F0.15` });
+        snapshot(fz, rawOD + 3, true, 'rapid', `G00 X${(rawOD + 3).toFixed(1)} Z${fz}`);
+        for (let s = 1; s <= 8; s++) {
+          const xStep = rawOD - ((rawOD - (isID ? rawID : 0)) * s) / 8;
+          snapshot(fz, xStep, false, idx === 2 ? 'finish' : 'rough', `G01 X${xStep.toFixed(1)} Z${fz} F0.15`);
         }
-        moves.push({ x: rawOD + 3, y: 0, z: fz + 2, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: Math.abs(fz), prevPassZ: Math.abs(fz), gcode: `G00 RETRACT` });
+        snapshot(fz + 2, rawOD + 3, true, 'rapid', `G00 RETRACT`);
       });
-      moves.push({ x: rawOD + 8, y: 0, z: 16, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: 2.4, prevPassZ: 2.4, gcode: `G28 U0. W0. M05` });
+      snapshot(16, rawOD + 8, true, 'rapid', `G28 U0. W0. M05`);
     } else if (operation === 'Grooving' || operation === 'Parting') {
       const cutZ = -Math.min(28, partLen - 5);
       const targetX = operation === 'Parting' ? 0 : isID ? finOD + 6 : Math.max(12, finOD - 6);
       const startX = isID ? finOD - 4 : rawOD + 2;
-      moves.push({ x: startX, y: 0, z: cutZ, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: 0, prevPassZ: 0, gcode: `G00 X${startX.toFixed(1)} Z${cutZ}` });
-      for (let s = 1; s <= 5; s++) {
-        const curX = startX + ((targetX - startX) * s) / 5;
-        moves.push({ x: curX, y: 0, z: cutZ, rapid: false, passType: 'rough', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: 0, prevPassZ: 0, gcode: `G01 X${curX.toFixed(1)} F0.08` });
+      snapshot(cutZ, startX, true, 'rapid', `G00 X${startX.toFixed(1)} Z${cutZ}`);
+      for (let s = 1; s <= 8; s++) {
+        const curX = startX + ((targetX - startX) * s) / 8;
+        snapshot(cutZ, curX, false, 'rough', `G01 X${curX.toFixed(1)} F0.08`);
       }
-      moves.push({ x: startX + 4, y: 0, z: 16, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: isID ? rawID : 0, curID: isID ? rawID : 0, passZ: 0, prevPassZ: 0, gcode: `G28 U0. W0. M05` });
+      snapshot(16, startX + 4, true, 'rapid', `G28 U0. W0. M05`);
     } else if (isID) {
-      let completedID = Math.max(10, rawID);
-      let completedZ = 0;
+      let activeID = Math.max(10, rawID);
       const targetZ = Math.max(10, partLen - lenStock);
-
       if (stage.includes('Rough')) {
-        const totalStock = Math.max(2, finOD - diaStock - completedID);
+        const totalStock = Math.max(2, finOD - diaStock - activeID);
         const passes = 3;
         const step = totalStock / passes;
         for (let p = 1; p <= passes; p++) {
-          const nextID = completedID + step;
-          moves.push({ x: rawID - 2, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${(rawID - 2).toFixed(1)} Z2.0 (ID PASS ${p})` });
-          moves.push({ x: nextID, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${nextID.toFixed(2)}` });
-          for (let s = 1; s <= 5; s++) {
-            const zProg = (targetZ * s) / 5;
-            moves.push({ x: nextID, y: 0, z: -zProg, rapid: false, passType: 'rough', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: nextID, passZ: zProg, prevPassZ: completedZ, gcode: `G01 X${nextID.toFixed(2)} Z-${zProg.toFixed(1)} F0.22` });
+          const nextID = activeID + step;
+          snapshot(2, rawID - 2, true, 'rapid', `G00 X${(rawID - 2).toFixed(1)} Z2.0 (ID PASS ${p})`);
+          snapshot(2, nextID, true, 'rapid', `G00 X${nextID.toFixed(2)}`);
+          for (let s = 1; s <= 12; s++) {
+            const zProg = (targetZ * s) / 12;
+            snapshot(-zProg, nextID, false, 'rough', `G01 X${nextID.toFixed(2)} Z-${zProg.toFixed(1)} F0.22`);
           }
-          completedID = nextID;
-          completedZ = targetZ;
-          moves.push({ x: rawID - 2, y: 0, z: -targetZ, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: completedZ, prevPassZ: completedZ, gcode: `G00 X${(rawID - 2).toFixed(1)} (RETRACT)` });
+          activeID = nextID;
+          snapshot(-targetZ, rawID - 2, true, 'rapid', `G00 X${(rawID - 2).toFixed(1)} (RETRACT)`);
         }
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
-        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)` });
-        for (let s = 1; s <= 5; s++) {
-          const zProg = (partLen * s) / 5;
-          moves.push({ x: finOD, y: 0, z: -zProg, rapid: false, passType: 'finish', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: finOD, passZ: zProg, prevPassZ: completedZ, gcode: `G41 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12` });
+        snapshot(2, finOD, true, 'rapid', `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)`);
+        for (let s = 1; s <= 12; s++) {
+          const zProg = (partLen * s) / 12;
+          snapshot(-zProg, finOD, false, 'finish', `G41 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12`);
         }
-        completedID = finOD;
-        completedZ = partLen;
+        activeID = finOD;
       }
       if (stage.includes('Chamfer')) {
-        moves.push({ x: finOD + chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: completedZ, prevPassZ: completedZ, gcode: `G00 X${(finOD + chamfSize * 2).toFixed(1)} Z1.0` });
-        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: completedZ, prevPassZ: completedZ, gcode: `G01 X${finOD.toFixed(1)} Z-${chamfSize} F0.10` });
+        snapshot(1, finOD + chamfSize * 2, true, 'rapid', `G00 X${(finOD + chamfSize * 2).toFixed(1)} Z1.0`);
+        snapshot(-chamfSize, finOD, false, 'chamfer', `G01 X${finOD.toFixed(1)} Z-${chamfSize} F0.10`);
       }
-      moves.push({ x: rawID - 2, y: 0, z: 18, rapid: true, passType: 'rapid', prevOD: rawOD, curOD: rawOD, prevID: completedID, curID: completedID, passZ: completedZ, prevPassZ: completedZ, gcode: `G40 G28 U0. W0. M05` });
+      snapshot(18, rawID - 2, true, 'rapid', `G40 G28 U0. W0. M05`);
     } else {
-      let completedOD = rawOD;
-      let completedZ = 0;
+      // OD TURNING: Smooth 12-step Z feed per pass + cumulative OD profile (never refills!)
+      let activeOD = rawOD;
       const targetZ = Math.max(10, partLen - lenStock);
-
       if (stage.includes('Rough')) {
         const totalStock = Math.max(2, rawOD - (finOD + diaStock));
         const passes = 3;
         const step = totalStock / passes;
         for (let p = 1; p <= passes; p++) {
-          const nextOD = completedOD - step;
-          moves.push({ x: completedOD + 3, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${(completedOD + 3).toFixed(1)} Z2.0 (ROUGH PASS ${p})` });
-          moves.push({ x: nextOD, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${nextOD.toFixed(2)}` });
-          for (let s = 1; s <= 5; s++) {
-            const zProg = (targetZ * s) / 5;
-            moves.push({ x: nextOD, y: 0, z: -zProg, rapid: false, passType: 'rough', prevOD: completedOD, curOD: nextOD, prevID: 0, curID: 0, passZ: zProg, prevPassZ: completedZ, gcode: `G01 X${nextOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.25` });
+          const nextOD = activeOD - step;
+          snapshot(2, activeOD + 3, true, 'rapid', `G00 X${(activeOD + 3).toFixed(1)} Z2.0 (ROUGH PASS ${p})`);
+          snapshot(2, nextOD, true, 'rapid', `G00 X${nextOD.toFixed(2)}`);
+          for (let s = 1; s <= 12; s++) {
+            const zProg = (targetZ * s) / 12;
+            snapshot(-zProg, nextOD, false, 'rough', `G01 X${nextOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.25`);
           }
-          completedOD = nextOD;
-          completedZ = targetZ;
-          moves.push({ x: completedOD + 3, y: 0, z: -targetZ + 1, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: completedZ, prevPassZ: completedZ, gcode: `G00 X${(completedOD + 3).toFixed(1)} (RETRACT)` });
+          activeOD = nextOD;
+          snapshot(-targetZ + 1, activeOD + 3, true, 'rapid', `G00 X${(activeOD + 3).toFixed(1)} (RETRACT)`);
         }
       }
       if (stage.includes('Finish') || stage.includes('Combined')) {
-        moves.push({ x: finOD, y: 0, z: 2, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: 0, prevPassZ: completedZ, gcode: `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)` });
-        for (let s = 1; s <= 5; s++) {
-          const zProg = (partLen * s) / 5;
-          moves.push({ x: finOD, y: 0, z: -zProg, rapid: false, passType: 'finish', prevOD: completedOD, curOD: finOD, prevID: 0, curID: 0, passZ: zProg, prevPassZ: completedZ, gcode: `G42 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12` });
+        snapshot(2, finOD, true, 'rapid', `G00 X${finOD.toFixed(2)} Z2.0 (FINISH PASS)`);
+        for (let s = 1; s <= 12; s++) {
+          const zProg = (partLen * s) / 12;
+          snapshot(-zProg, finOD, false, 'finish', `G42 G01 X${finOD.toFixed(2)} Z-${zProg.toFixed(1)} F0.12`);
         }
-        completedOD = finOD;
-        completedZ = partLen;
+        activeOD = finOD;
       }
       if (stage.includes('Chamfer')) {
-        moves.push({ x: finOD - chamfSize * 2, y: 0, z: 1, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: completedZ, prevPassZ: completedZ, gcode: `G00 X${(finOD - chamfSize * 2).toFixed(1)} Z1.0` });
-        moves.push({ x: finOD, y: 0, z: -chamfSize, rapid: false, passType: 'chamfer', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: completedZ, prevPassZ: completedZ, gcode: `G01 X${finOD.toFixed(1)} Z-${chamfSize} F0.10` });
+        snapshot(1, finOD - chamfSize * 2, true, 'rapid', `G00 X${(finOD - chamfSize * 2).toFixed(1)} Z1.0`);
+        snapshot(-chamfSize, finOD, false, 'chamfer', `G01 X${finOD.toFixed(1)} Z-${chamfSize} F0.10`);
       }
-      moves.push({ x: rawOD + 8, y: 0, z: 18, rapid: true, passType: 'rapid', prevOD: completedOD, curOD: completedOD, prevID: 0, curID: 0, passZ: completedZ, prevPassZ: completedZ, gcode: `G40 G28 U0. W0. M05` });
+      snapshot(18, rawOD + 8, true, 'rapid', `G40 G28 U0. W0. M05`);
     }
   } else {
     const isCircPocket = tName.includes('CIRCULAR POCKET') || operation === 'Pocket Milling';
@@ -157,7 +198,7 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
     const isCircSpigot = tName.includes('CIRCULAR SPIGOT') || operation === 'Spigot Milling';
     const isRectSpigot = tName.includes('RECTANGULAR SPIGOT');
 
-    const circlePts = (r, steps = 16) => {
+    const circlePts = (r, steps = 20) => {
       const a = [];
       for (let i = 0; i <= steps; i++) {
         const ang = (i / steps) * Math.PI * 2;
@@ -173,41 +214,41 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       { x: -w, y: -h }
     ];
 
+    let maxDepthSoFar = 0;
+
     if (isCircPocket || isRectPocket || isCircSpigot || isRectSpigot) {
       const isPocket = isCircPocket || isRectPocket;
       const isCirc = !isRectPocket && !isRectSpigot;
-      let curCutDepth = 0;
 
       if (stage.includes('Rough')) {
         const roughZ = -(depth - btmAllow);
+        maxDepthSoFar = Math.max(maxDepthSoFar, Math.abs(roughZ));
         if (isPocket) {
-          moves.push({ x: 0, y: 0, z: 6, rapid: true, passType: 'rapid', cutDepth: 0, gcode: 'G43 H01 G00 X0.0 Y0.0 Z6.0' });
-          curCutDepth = Math.abs(roughZ);
-          moves.push({ x: 0, y: 0, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, gcode: `G01 Z${roughZ.toFixed(2)} F200.0` });
+          moves.push({ x: 0, y: 0, z: 6, rapid: true, passType: 'rapid', cutDepth: maxDepthSoFar, gcode: 'G43 H01 G00 X0.0 Y0.0 Z6.0' });
+          moves.push({ x: 0, y: 0, z: roughZ, rapid: false, passType: 'rough', cutDepth: maxDepthSoFar, gcode: `G01 Z${roughZ.toFixed(2)} F200.0` });
           if (isCirc) {
             [11, Math.max(15, 22 - wallAllow * 2)].forEach((rad, ri) => {
-              const pts = circlePts(rad, 14);
-              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutRad: rad, gcode: `G03 X${p.x} Y${p.y} R${rad} (RING ${ri + 1})` }));
+              const pts = circlePts(rad, 16);
+              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: maxDepthSoFar, cutRad: rad, gcode: `G03 X${p.x} Y${p.y} R${rad} (RING ${ri + 1})` }));
             });
           } else {
             [{ w: 13, h: 9 }, { w: 26 - wallAllow, h: 16 - wallAllow }].forEach((bx, bi) => {
               const pts = rectPts(bx.w, bx.h);
-              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutW: bx.w, cutH: bx.h, gcode: `G01 X${p.x} Y${p.y} (PASS ${bi + 1})` }));
+              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: maxDepthSoFar, cutW: bx.w, cutH: bx.h, gcode: `G01 X${p.x} Y${p.y} (PASS ${bi + 1})` }));
             });
           }
         } else {
-          moves.push({ x: -34, y: 0, z: 6, rapid: true, passType: 'rapid', cutDepth: 0, gcode: 'G43 H01 G00 X-34.0 Y0.0 Z6.0' });
-          curCutDepth = Math.abs(roughZ);
-          moves.push({ x: -34, y: 0, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, gcode: `G01 Z${roughZ.toFixed(2)} F200.0` });
+          moves.push({ x: -34, y: 0, z: 6, rapid: true, passType: 'rapid', cutDepth: maxDepthSoFar, gcode: 'G43 H01 G00 X-34.0 Y0.0 Z6.0' });
+          moves.push({ x: -34, y: 0, z: roughZ, rapid: false, passType: 'rough', cutDepth: maxDepthSoFar, gcode: `G01 Z${roughZ.toFixed(2)} F200.0` });
           if (isCirc) {
             [30, 20 + wallAllow * 2].forEach((rad) => {
-              const pts = circlePts(rad, 14);
-              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutRad: rad, gcode: `G02 X${p.x} Y${p.y} R${rad}` }));
+              const pts = circlePts(rad, 16);
+              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: maxDepthSoFar, cutRad: rad, gcode: `G02 X${p.x} Y${p.y} R${rad}` }));
             });
           } else {
             [{ w: 32, h: 22 }, { w: 22 + wallAllow, h: 14 + wallAllow }].forEach((bx) => {
               const pts = rectPts(bx.w, bx.h);
-              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutW: bx.w, cutH: bx.h, gcode: `G01 X${p.x} Y${p.y}` }));
+              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: maxDepthSoFar, cutW: bx.w, cutH: bx.h, gcode: `G01 X${p.x} Y${p.y}` }));
             });
           }
         }
@@ -215,22 +256,22 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
       if (stage.includes('Finish') || stage.includes('Combined')) {
         const finZ = stage === 'Wall Finish Only' ? -(depth - btmAllow) : -depth;
-        curCutDepth = Math.abs(finZ);
+        maxDepthSoFar = Math.max(maxDepthSoFar, Math.abs(finZ));
         const wallPts = isCirc
-          ? circlePts(isPocket ? 22 : 20, 16)
+          ? circlePts(isPocket ? 22 : 20, 18)
           : rectPts(isPocket ? 26 : 22, isPocket ? 16 : 14);
-        wallPts.forEach((p) => moves.push({ x: p.x, y: p.y, z: finZ, rapid: false, passType: 'finish', cutDepth: curCutDepth, cutRad: isPocket ? 22 : 20, cutW: isPocket ? 26 : 22, cutH: isPocket ? 16 : 14, gcode: `${mfgCfg.compMode?.slice(0, 3) || 'G41'} G01 X${p.x} Y${p.y} Z${finZ.toFixed(1)}` }));
+        wallPts.forEach((p) => moves.push({ x: p.x, y: p.y, z: finZ, rapid: false, passType: 'finish', cutDepth: maxDepthSoFar, cutRad: isPocket ? 22 : 20, cutW: isPocket ? 26 : 22, cutH: isPocket ? 16 : 14, gcode: `${mfgCfg.compMode?.slice(0, 3) || 'G41'} G01 X${p.x} Y${p.y} Z${finZ.toFixed(1)}` }));
       }
 
       if (stage.includes('Chamfer')) {
         const chZ = -chamfSize;
         const chPts = isCirc
-          ? circlePts(isPocket ? 22.5 : 19.5, 16)
+          ? circlePts(isPocket ? 22.5 : 19.5, 18)
           : rectPts(isPocket ? 26.5 : 21.5, isPocket ? 16.5 : 13.5);
-        chPts.forEach((p) => moves.push({ x: p.x, y: p.y, z: chZ, rapid: false, passType: 'chamfer', cutDepth: curCutDepth, gcode: `CHAMFER C${chamfSize} X${p.x} Y${p.y}` }));
+        chPts.forEach((p) => moves.push({ x: p.x, y: p.y, z: chZ, rapid: false, passType: 'chamfer', cutDepth: maxDepthSoFar, gcode: `CHAMFER C${chamfSize} X${p.x} Y${p.y}` }));
       }
 
-      moves.push({ x: 0, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: curCutDepth, gcode: 'G40 G00 Z25.0 M05' });
+      moves.push({ x: 0, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: maxDepthSoFar, gcode: 'G40 G00 Z25.0 M05' });
     } else {
       const holes = [
         { x: -24, y: -16 },
@@ -252,13 +293,32 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
 
-// Exact Orientation Rules for Both VTL and Standard Turning:
-// - OD Operations: Insert tip faces INWARD toward Job (-X in local tip coords), Turret/Holder sits OUTWARD (+X)
-// - ID Operations: Insert tip faces OUTWARD toward Bore Wall / Turret side (+X in local tip coords), Bar inside bore
+// Builds a smooth LatheGeometry from an array of { r, y } profile points
+function buildProfileLathe(profileArray, rawOD, rawRad, stickout, isVTL) {
+  const pts = [];
+  const n = profileArray.length - 1;
+  // Start at center axis on chuck side
+  pts.push(new THREE.Vector2(0.01, -stickout / 2));
+  for (let i = 0; i <= n; i++) {
+    // i=0 is free face (+stickout/2), i=n is chuck face (-stickout/2)
+    const fracFromFace = i / n;
+    const yPos = stickout / 2 - fracFromFace * stickout;
+    const dia = profileArray[i];
+    const rad = Math.max(2, (dia / Math.max(10, rawOD)) * rawRad);
+    pts.push(new THREE.Vector2(rad, yPos));
+  }
+  pts.push(new THREE.Vector2(0.01, -stickout / 2));
+
+  const geo = new THREE.LatheGeometry(pts, 48);
+  if (!isVTL) {
+    geo.rotateZ(-Math.PI / 2);
+  }
+  return geo;
+}
+
 function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, holderMat, insertMat) {
   const assembly = new THREE.Group();
 
-  // 1. Turret Body safely clear of workpiece
   const turretBody = new THREE.Group();
   if (isVTL) {
     const outerRing = new THREE.Mesh(new THREE.CylinderGeometry(15, 15, 6.5, 32, 1, true), ringMat);
@@ -274,7 +334,6 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
       st.rotation.y = -ang;
       turretBody.add(st);
     }
-    // Placed on outer (+X) & above (+Y) so turret never touches job
     turretBody.position.set(isID ? 18 : 22, 26, 0);
   } else {
     const drum = new THREE.Mesh(new THREE.CylinderGeometry(10.5, 10.5, 9.5, 24), ringMat);
@@ -292,11 +351,9 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
   }
   assembly.add(turretBody);
 
-  // 2. Holder & Insert oriented strictly by OD (Insert toward Job Side) vs ID (Insert toward Turret/Wall Side)
   const toolPart = new THREE.Group();
 
   if (isID || operation === 'Boring' || operation === 'Drilling' || operation === 'Tapping') {
-    // ID Operation: Boring bar extends from turret side (+X) toward bore center, while INSERT faces OUTWARD (+X) toward Turret/ID Wall!
     const barLen = 22;
     const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, barLen, 20), holderMat);
     bar.rotation.z = Math.PI / 2;
@@ -307,14 +364,11 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
     riser.position.set(barLen, 11, 0);
     toolPart.add(riser);
 
-    // ID Insert points OUTWARD (+X, toward turret/bore wall side)
     const idInsert = new THREE.Mesh(new THREE.ConeGeometry(2.6, 5.5, 4), insertMat);
     idInsert.rotation.z = -Math.PI / 2;
     idInsert.position.set(2.2, 0, 0);
     toolPart.add(idInsert);
   } else {
-    // OD Operations (Turning / Facing / Threading / Grooving / Parting):
-    // Holder & Turret sit on +X / +Y (outside job), and INSERT tip points INWARD (-X / -Y) directly onto Job Side!
     const vPost = new THREE.Mesh(
       new THREE.BoxGeometry(operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.5, 22, 4.5),
       holderMat
@@ -327,18 +381,15 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
     toolPart.add(hArm);
 
     if (operation === 'Threading') {
-      // OD 60-deg Threading Insert pointing INWARD (-X toward job)
       const odThreadIns = new THREE.Mesh(new THREE.ConeGeometry(3.2, 6.5, 3), insertMat);
       odThreadIns.rotation.z = Math.PI / 2;
       odThreadIns.position.set(-1.5, 1.5, 0);
       toolPart.add(odThreadIns);
     } else if (operation === 'Grooving' || operation === 'Parting') {
-      // OD Grooving/Parting Blade Tip pointing INWARD (-X toward job)
       const odGrooveIns = new THREE.Mesh(new THREE.BoxGeometry(2.0, 5.2, 4.0), insertMat);
       odGrooveIns.position.set(-1.0, 2.0, 0);
       toolPart.add(odGrooveIns);
     } else {
-      // OD CNMG Diamond Insert pointing INWARD (-X toward job side)
       const odDiamondIns = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2.2, 4), insertMat);
       odDiamondIns.rotation.x = Math.PI / 2;
       odDiamondIns.rotation.y = Math.PI / 4;
@@ -351,7 +402,7 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
   return assembly;
 }
 
-export default function CncSimulator({ domainKey, machineType, workSide, operation, templateName = '', mfgCfg = {} }) {
+export default function CncSimulator({ code, domainKey, machineType, workSide, operation, templateName = '', mfgCfg = {} }) {
   const [playing, setPlaying] = useState(true);
   const [stepIdx, setStepIdx] = useState(0);
   const [speed, setSpeed] = useState(1);
@@ -375,8 +426,8 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
   const isVTL = machineType === 'VTL';
 
   const moves = useMemo(
-    () => buildStepMoves(domainKey, workSide, operation, templateName, mfgCfg),
-    [domainKey, workSide, operation, templateName, mfgCfg]
+    () => buildStepMoves(code, domainKey, workSide, operation, templateName, mfgCfg),
+    [code, domainKey, workSide, operation, templateName, mfgCfg]
   );
 
   useEffect(() => {
@@ -388,7 +439,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     if (!playing || moves.length === 0) return;
     const timer = setInterval(() => {
       setStepIdx((prev) => (prev + 1 >= moves.length ? 0 : prev + 1));
-    }, Math.max(95, Math.round(520 / speed)));
+    }, Math.max(55, Math.round(240 / speed)));
     return () => clearInterval(timer);
   }, [playing, moves, speed]);
 
@@ -441,7 +492,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     const animate = () => {
       animId = requestAnimationFrame(animate);
       if (playingRef.current && spindleGroupRef.current) {
-        spindleGroupRef.current.rotation.y += 0.15 * speedRef.current;
+        spindleGroupRef.current.rotation.y += 0.16 * speedRef.current;
       }
       controls.update();
       renderer.render(scene, camera);
@@ -531,25 +582,15 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       const rawOD = Number(mfgCfg.stockX || 50);
       const partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
       const stickout = Math.min(64, Math.max(38, Number(mfgCfg.chuckStickout || 65) * 0.78));
-
       const rawRad = 24;
-      const toRad = (dia) => Math.max(4, (dia / Math.max(10, rawOD)) * rawRad);
-      const toLen = (zVal) => Math.min(stickout * 0.88, Math.max(0, (zVal / partLen) * (stickout * 0.88)));
-
-      const prevODRad = toRad(current.prevOD ?? rawOD);
-      const curODRad = toRad(current.curOD ?? rawOD);
-      const passLen = toLen(current.passZ || 0);
-      const prevPassLen = toLen(current.prevPassZ || 0);
-      const curIDRad = (current.curID || 0) > 0 ? Math.min(curODRad - 2, toRad(current.curID)) : 0;
-
-      const orientGroup = new THREE.Group();
-      if (!isVTL) {
-        orientGroup.rotation.z = -Math.PI / 2;
-      }
 
       const spindleGroup = new THREE.Group();
+      if (!isVTL) {
+        spindleGroup.rotation.z = -Math.PI / 2;
+      }
       spindleGroupRef.current = spindleGroup;
 
+      // 1. 3-Jaw Chuck + Steel Jaws
       const chuckMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad + 11, rawRad + 11, 18, 48), chuckMat);
       chuckMesh.position.y = -stickout / 2 - 9;
       spindleGroup.add(chuckMesh);
@@ -562,46 +603,36 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         spindleGroup.add(jawMesh);
       }
 
-      const yChuck = -stickout / 2;
-      const yFace = stickout / 2;
-      const maxCutLen = Math.max(passLen, prevPassLen);
-      const yBaseSplit = yFace - maxCutLen;
+      // 2. Smooth Lathe-Revolved Workpiece (Continuous slice-by-slice material removal!)
+      const odProf = current.odProfile || [rawOD];
+      const latheGeo = buildProfileLathe(odProf, rawOD, rawRad, stickout, isVTL);
+      const jobMesh = new THREE.Mesh(latheGeo, machinedMat);
+      spindleGroup.add(jobMesh);
 
-      const baseH = Math.max(0.5, yBaseSplit - yChuck);
-      const baseMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad, rawRad, baseH, 48), rawStockMat);
-      baseMesh.position.y = yChuck + baseH / 2;
-      spindleGroup.add(baseMesh);
-
-      if (maxCutLen > 0.2) {
-        if (passLen < prevPassLen - 0.2) {
-          const lowerH = prevPassLen - passLen;
-          const lowerMesh = new THREE.Mesh(new THREE.CylinderGeometry(prevODRad, prevODRad, lowerH, 48), machinedMat);
-          lowerMesh.position.y = yBaseSplit + lowerH / 2;
-          spindleGroup.add(lowerMesh);
-
-          if (passLen > 0.2) {
-            const upperMesh = new THREE.Mesh(new THREE.CylinderGeometry(curODRad, curODRad, passLen, 48), machinedMat);
-            upperMesh.position.y = yFace - passLen / 2;
-            spindleGroup.add(upperMesh);
-          }
-        } else {
-          const singleMesh = new THREE.Mesh(new THREE.CylinderGeometry(curODRad, curODRad, maxCutLen, 48), machinedMat);
-          singleMesh.position.y = yFace - maxCutLen / 2;
-          spindleGroup.add(singleMesh);
-        }
+      // Uncut outer collar reference on uncut region so raw vs machined transition is super sharp
+      const cutFrac = current.cutFrac || 0;
+      const uncutH = Math.max(0.2, stickout * (1 - cutFrac));
+      if (uncutH > 0.5 && workSide !== 'ID') {
+        const collarMesh = new THREE.Mesh(new THREE.CylinderGeometry(rawRad, rawRad, uncutH, 48), rawStockMat);
+        collarMesh.position.y = -stickout / 2 + uncutH / 2;
+        spindleGroup.add(collarMesh);
       }
 
-      if (curIDRad > 0.5 && maxCutLen > 0.2) {
+      // Inner Bore if ID / Drilling
+      const idProf = current.idProfile || [];
+      const maxIdDia = idProf.length > 0 ? Math.max(...idProf) : 0;
+      if (maxIdDia > 1 && cutFrac > 0.02) {
+        const boreRad = Math.max(3, (maxIdDia / Math.max(10, rawOD)) * rawRad);
+        const boreH = Math.max(2, stickout * cutFrac);
         const boreMesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(curIDRad, curIDRad, maxCutLen + 0.5, 36),
+          new THREE.CylinderGeometry(boreRad, boreRad, boreH + 0.4, 36),
           new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5, clippingPlanes: planes })
         );
-        boreMesh.position.y = yFace - maxCutLen / 2 + 0.2;
+        boreMesh.position.y = stickout / 2 - boreH / 2 + 0.2;
         spindleGroup.add(boreMesh);
       }
 
-      orientGroup.add(spindleGroup);
-      group.add(orientGroup);
+      group.add(spindleGroup);
 
       const mapTurnVec = (pt) => {
         const zNorm = ((pt.z || 0) / partLen) * (stickout * 0.88);
@@ -666,7 +697,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       for (let i = 1; i < history.length; i++) {
         const p1 = mapMillVec(history[i - 1]);
         const p2 = mapMillVec(history[i]);
-        const col = history[i].rapid ? 0xf43f5e : history[i].passType === 'finish' ? 0x38bdf8 : 0x10b981;
+        const col = history[i].rapid ? 0xe11d48 : history[i].passType === 'finish' ? 0x0284c7 : 0x059669;
         group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: col })));
       }
 
@@ -701,7 +732,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Box className="w-4 h-4" />
-          <span>3D {operation} ({workSide}) Tooling & Turret Sim</span>
+          <span>3D {operation} ({workSide}) Step-by-Step Sim</span>
         </div>
         <div className="flex items-center gap-1">
           <button
