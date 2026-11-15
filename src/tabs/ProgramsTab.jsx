@@ -28,6 +28,11 @@ const AREA_TYPES = [
   'Pre-Cast Wall Only'
 ];
 
+const COMP_MODES = [
+  'G41 (Left Climb Comp)',
+  'G42 (Right Conv Comp)'
+];
+
 function classifyTemplate(domainKey, name) {
   const n = name.toUpperCase();
   if (domainKey === 'Turning') {
@@ -75,13 +80,16 @@ function classifyTemplate(domainKey, name) {
 function generateProcessHeader(controller, domainKey, operation, workSide, mfgCfg) {
   const isS = controller === 'Siemens';
   const c = (t) => (isS ? `; ${t}` : `(${t})`);
+  const gComp = mfgCfg.compMode.startsWith('G42') ? 'G42' : 'G41';
   const lines = [
     c(`WORKPIECE: ${domainKey === 'Turning' ? `RAW OD=${mfgCfg.stockX}MM, FIN=${mfgCfg.stockY}MM, LEN=${mfgCfg.stockZ}MM` : `STOCK ${mfgCfg.stockX}X${mfgCfg.stockY}X${mfgCfg.stockZ}MM, DEPTH=${mfgCfg.featureDepth}MM`}`),
     c(`AREA: ${mfgCfg.areaType} | STAGE: ${mfgCfg.machiningStage}`),
-    c(`MAIN TOOL: DIA ${mfgCfg.toolDia}MM | ${mfgCfg.toolFlutes} FLUTES | FLUTE LEN ${mfgCfg.toolLength}MM`),
-    c(`FINISH ALLOWANCE: WALL=${mfgCfg.wallAllowance}MM | BOTTOM=${mfgCfg.bottomAllowance}MM`),
-    c(`CHAMFER TOOL: DIA ${mfgCfg.chamferDia}MM | ${mfgCfg.chamferAngle} DEG | CHAMFER C${mfgCfg.chamferSize}MM`)
+    c(`TOOL & COMP: DIA ${mfgCfg.toolDia}MM (${mfgCfg.toolFlutes}FL, L=${mfgCfg.toolLength}MM) | G43 H01 + ${gComp} D01`),
+    c(`FINISH LEAVE: WALL=${mfgCfg.wallAllowance}MM | BOTTOM=${mfgCfg.bottomAllowance}MM`)
   ];
+  if (mfgCfg.machiningStage === 'Chamfering Pass') {
+    lines.push(c(`CHAMFER TOOL: DIA ${mfgCfg.chamferDia}MM | ${mfgCfg.chamferAngle} DEG | C${mfgCfg.chamferSize}MM | G43 H03 + ${gComp} D03`));
+  }
   return lines.join('\n');
 }
 
@@ -91,92 +99,93 @@ function adaptCodeForMode(baseCode, mode, controller, domainKey, operation, work
   const cmt = (txt) => (isSiemens ? `; ${txt}` : `(${txt})`);
   const header = generateProcessHeader(controller, domainKey, operation, workSide, mfgCfg);
   const stage = mfgCfg.machiningStage;
+  const gComp = mfgCfg.compMode.startsWith('G42') ? 'G42' : 'G41';
+  const isSpigot = workSide.toUpperCase().includes('SPIGOT');
+  const isRect = workSide.toUpperCase().includes('RECTANGULAR');
 
-  // Dedicated Stage Programs (Wall Finish / Wall+Bottom Finish / Chamfering)
+  // 1. Dedicated Wall Finish / Wall + Bottom Finish with G43 H02 & G41/G42 D02
   if (stage === 'Wall Finish Only' || stage === 'Wall + Bottom Finish') {
     const finDepth = stage === 'Wall Finish Only'
       ? -(Number(mfgCfg.featureDepth) - Number(mfgCfg.bottomAllowance)).toFixed(2)
       : -Number(mfgCfg.featureDepth).toFixed(2);
+    const contourBlock = isRect
+      ? `${gComp} D02 G01 X${isSpigot ? '22.0' : '26.0'} Y0.0 F380.0\nG01 Y${isSpigot ? '14.0' : '16.0'}\nG01 X-${isSpigot ? '22.0' : '26.0'}\nG01 Y-${isSpigot ? '14.0' : '16.0'}\nG01 X${isSpigot ? '22.0' : '26.0'}\nG01 Y0.0\nG40 G01 X0.0 Y0.0`
+      : `${gComp} D02 G01 X${isSpigot ? '20.0' : '22.0'} Y0.0 F380.0\n${isSpigot ? 'G02 I-20.0' : 'G03 I-22.0'}\nG40 G01 X0.0 Y0.0`;
+
     if (isSiemens) {
       return `${header}
-; SIEMENS ${stage.toUpperCase()} PROGRAM
+; SIEMENS ${stage.toUpperCase()} (${gComp} CUTTER COMP ACTIVE)
 G21 G17 G90 G94 G40
 G75 Z0
 T="FIN_CUTTER_D${mfgCfg.toolDia}" D1
 M6
-G54 G00 X0 Y0
+G54 G00 X${isSpigot ? '-35' : '0'} Y0
 S3200 M3 M8
 G00 Z5
 G01 Z=${finDepth} F180
-${stage === 'Wall + Bottom Finish' ? `; BOTTOM FLOOR WIPE PASS\nG01 X15 Y0 F420\nG03 I-15 J0\n` : `; SKIP BOTTOM FLOOR (WALL FINISH ONLY)\n`}; SIDE WALL FINISH PASS (REMOVING ${mfgCfg.wallAllowance}MM STOCK)
-G41 G01 X22 Y0 F380
-G03 I-22 J0
-G40 G01 X0 Y0
+${stage === 'Wall + Bottom Finish' && !isSpigot ? `; BOTTOM FLOOR WIPE\nG01 X14 Y0 F420\nG03 I-14 J0\n` : `; WALL FINISH ONLY\n`}${contourBlock.replace(' D02', '')}
 G00 Z50 M9
 M5
 M30`;
     }
-    return `O4101 (${controller.toUpperCase()} ${stage.toUpperCase()} PROGRAM)
+    return `O4101 (${controller.toUpperCase()} ${stage.toUpperCase()} - G43 & ${gComp})
 ${header}
 G21 G17 G40 G49 G80 G90
 G91 G28 Z0.0
 T02 M06 (FINISH CUTTER DIA ${mfgCfg.toolDia}MM ${mfgCfg.toolFlutes}FL)
-G90 G54 G00 X0.0 Y0.0
+G90 G54 G00 X${isSpigot ? '-35.0' : '0.0'} Y0.0
 S3200 M03
 G43 H02 Z5.0 M08
 G01 Z${finDepth} F180.0
-${stage === 'Wall + Bottom Finish' ? `(BOTTOM FLOOR FINISH WIPE)\nG01 X15.0 Y0.0 F420.0\nG03 I-15.0\n` : `(WALL ONLY - BOTTOM ALLOWANCE ${mfgCfg.bottomAllowance}MM KEPT)\n`}(WALL FINISH PASS - REMOVING ${mfgCfg.wallAllowance}MM ALLOWANCE)
-G41 D02 X22.0 Y0.0 F380.0
-G03 I-22.0
-G40 G01 X0.0 Y0.0
+${stage === 'Wall + Bottom Finish' && !isSpigot ? `(BOTTOM FLOOR FINISH WIPE)\nG01 X14.0 Y0.0 F420.0\nG03 I-14.0\n` : `(WALL ONLY - BOTTOM ALLOWANCE ${mfgCfg.bottomAllowance}MM KEPT)\n`}(${gComp} CUTTER RADIUS COMPENSATION ACTIVE)
+${contourBlock}
 G00 Z50.0 M09
 G91 G28 Z0.0
 M05
 M30`;
   }
 
+  // 2. Dedicated Chamfering Pass with G43 H03 & G41/G42 D03
   if (stage === 'Chamfering Pass') {
     const cDepth = -(Number(mfgCfg.chamferSize) + 0.3).toFixed(2);
+    const chContour = isRect
+      ? `${gComp} D03 G01 X${isSpigot ? '21.5' : '26.5'} Y0.0 F450.0\nG01 Y${isSpigot ? '13.5' : '16.5'}\nG01 X-${isSpigot ? '21.5' : '26.5'}\nG01 Y-${isSpigot ? '13.5' : '16.5'}\nG01 X${isSpigot ? '21.5' : '26.5'}\nG01 Y0.0\nG40 G01 X${isSpigot ? '-35.0' : '0.0'} Y0.0`
+      : `${gComp} D03 G01 X${isSpigot ? '19.5' : '22.5'} Y0.0 F450.0\n${isSpigot ? 'G02 I-19.5' : 'G03 I-22.5'}\nG40 G01 X${isSpigot ? '-35.0' : '0.0'} Y0.0`;
+
     if (isSiemens) {
       return `${header}
-; SIEMENS CHAMFERING PASS (C${mfgCfg.chamferSize}MM)
+; SIEMENS CHAMFERING PASS (C${mfgCfg.chamferSize}MM - ${gComp})
 G21 G17 G90 G94 G40
 G75 Z0
 T="CHAMFER_D${mfgCfg.chamferDia}_${mfgCfg.chamferAngle}DEG" D1
 M6
-G54 G00 X0 Y0
+G54 G00 X${isSpigot ? '-35' : '0'} Y0
 S3600 M3 M8
 G00 Z5
 G01 Z=${cDepth} F250
-G41 G01 X22.4 Y0 F450
-G03 I-22.4 J0
-G40 G01 X0 Y0
+${chContour.replace(' D03', '')}
 G00 Z50 M9
 M5
 M30`;
     }
-    return `O4201 (${controller.toUpperCase()} CHAMFERING PASS C${mfgCfg.chamferSize}MM)
+    return `O4201 (${controller.toUpperCase()} CHAMFERING PASS C${mfgCfg.chamferSize}MM - G43 & ${gComp})
 ${header}
 G21 G17 G40 G49 G80 G90
 G91 G28 Z0.0
 T03 M06 (CHAMFER MILL DIA ${mfgCfg.chamferDia}MM ${mfgCfg.chamferAngle}DEG)
-G90 G54 G00 X0.0 Y0.0
+G90 G54 G00 X${isSpigot ? '-35.0' : '0.0'} Y0.0
 S3600 M03
 G43 H03 Z5.0 M08
 G01 Z${cDepth} F250.0
-G41 D03 X22.4 Y0.0 F450.0
-G03 I-22.4
-G40 G01 X0.0 Y0.0
+(${gComp} CHAMFER CUTTER RADIUS COMPENSATION)
+${chContour}
 G00 Z50.0 M09
 G91 G28 Z0.0
 M05
 M30`;
   }
 
-  if (mode === 'Canned Cycle Program') {
-    return `${header}\n${baseCode}`;
-  }
-
+  // 3. Macro Program with G43 & G41/G42 Compensation
   if (mode === 'Macro Program (Custom Variables)') {
     if (isSiemens) {
       if (domainKey === 'Turning') {
@@ -199,9 +208,9 @@ IF R10<(R2+(R6*2))
   R10=R2+(R6*2)
 ENDIF
 G00 X=R10+2 Z2 M8
-G01 X=R10 F=R5
+${gComp} G01 X=R10 F=R5
 G01 Z=R4
-G00 X=R10+3
+G40 G00 X=R10+3
 G00 Z2
 IF R10>(R2+(R6*2)) GOTOB LOOP_CUT
 G75 X0 Z0 M9
@@ -209,15 +218,14 @@ M5
 M30`;
       }
       return `${header}
-; SIEMENS R-VARIABLE IF-GOTOB MACRO - ${operation.toUpperCase()} (${workSide})
+; SIEMENS R-VARIABLE IF-GOTOB MACRO (${gComp} COMP)
 R1=-${mfgCfg.featureDepth} ; TARGET DEPTH Z
-R2=3.0   ; PECK / STEP DOWN
-R3=3.0   ; R-PLANE CLEARANCE
+R2=3.0   ; STEP DOWN
+R3=3.0   ; R-PLANE
 R4=240.0 ; FEED RATE
-R5=${mfgCfg.wallAllowance}  ; WALL FINISH ALLOWANCE
-R6=${mfgCfg.bottomAllowance}  ; BOTTOM FINISH ALLOWANCE
-R7=${mfgCfg.toolDia}  ; CUTTER DIAMETER
-R10=0.0  ; CURRENT Z DEPTH
+R5=${mfgCfg.wallAllowance}  ; WALL FINISH LEAVE
+R6=${mfgCfg.bottomAllowance}  ; BOTTOM FINISH LEAVE
+R10=0.0  ; CURRENT Z
 G21 G17 G90 G94 G40
 G75 Z0
 T="CUTTER_D${mfgCfg.toolDia}" D1
@@ -231,16 +239,16 @@ IF R10<(R1+R6)
   R10=R1+R6
 ENDIF
 G01 Z=R10 F=R4
-G01 X=20-R5 F450
-G03 I=-(20-R5) J0
-G00 X0 Y0
+${gComp} G01 X=22-R5 Y0 F450
+G03 I=-(22-R5) J0
+G40 G01 X0 Y0
 IF R10>(R1+R6) GOTOB NEXT_PECK
 G75 Z0 M9
 M5
 M30`;
     } else {
       if (domainKey === 'Turning') {
-        return `O9001 (${controller.toUpperCase()} IF-GOTO MACRO - ${operation.toUpperCase()} ${workSide})
+        return `O9001 (${controller.toUpperCase()} IF-GOTO MACRO - ${gComp} NOSE COMP)
 ${header}
 #101 = ${mfgCfg.stockX}  (START DIAMETER)
 #102 = ${mfgCfg.stockY}  (FINAL DIAMETER)
@@ -258,9 +266,9 @@ N10 (LOOP START)
 #110 = #110 - [#103 * 2.0]
 IF [#110 LT [#102 + [#106 * 2.0]]] THEN #110 = [#102 + [#106 * 2.0]]
 G00 X[#110 + 2.0] Z2.0 M08
-G01 X#110 F#105
+${gComp} G01 X#110 F#105
 G01 Z#104
-G00 X[#110 + 3.0]
+G40 G00 X[#110 + 3.0]
 G00 Z2.0
 IF [#110 GT [#102 + [#106 * 2.0]]] GOTO10
 G00 X100.0 Z100.0 M09
@@ -268,15 +276,14 @@ G28 U0. W0.
 M05
 M30`;
       }
-      return `O9002 (${controller.toUpperCase()} IF-GOTO MACRO - ${operation.toUpperCase()} ${workSide})
+      return `O9002 (${controller.toUpperCase()} IF-GOTO MACRO - G43 H01 & ${gComp} D01)
 ${header}
 #101 = -${mfgCfg.featureDepth} (TARGET DEPTH Z)
 #102 = 3.0   (STEP DOWN Q)
-#103 = 3.0   (R-PLANE CLEARANCE)
+#103 = 3.0   (R-PLANE)
 #104 = 240.0 (FEED RATE)
 #105 = ${mfgCfg.wallAllowance}  (WALL ALLOWANCE)
 #106 = ${mfgCfg.bottomAllowance}  (BOTTOM ALLOWANCE)
-#107 = ${mfgCfg.toolDia}  (CUTTER DIA)
 G21 G17 G40 G49 G80 G90
 G91 G28 Z0.0
 T01 M06
@@ -288,9 +295,9 @@ N10 (DEPTH LOOP)
 #110 = #110 - #102
 IF [#110 LT [#101 + #106]] THEN #110 = [#101 + #106]
 G01 Z#110 F#104
-G01 X[20.0 - #105] F450.0
-G03 I-[20.0 - #105]
-G00 X0.0 Y0.0
+${gComp} D01 G01 X[22.0 - #105] Y0.0 F450.0
+G03 I-[22.0 - #105]
+G40 G01 X0.0 Y0.0
 IF [#110 GT [#101 + #106]] GOTO10
 G00 Z50.0 M09
 G91 G28 Z0.0
@@ -299,22 +306,24 @@ M30`;
     }
   }
 
+  // Inject G42 / G43 compensation note and G41->selected gComp into Canned / ISO templates
+  const compensatedBase = baseCode.replace(/\bG41\b/g, gComp);
   if (mode === 'ISO G-Code and M-Code') {
     if (domainKey === 'Turning') {
       return `${header}
-${cmt(`ISO G-CODE & M-CODE (${controller.toUpperCase()} - ${workSide})`)}
-${isSiemens ? 'G21 G90 G95 G40\nG75 X0 Z0\nT="ISO_TOOL" D1\nG96 S200 LIMS=2800 M3' : 'O3001 (ISO LINEAR G01 G02 G03)\nG21 G40 G99\nG28 U0. W0.\nT0101\nG50 S2800\nG96 S200 M03'}
+${cmt(`ISO G-CODE & M-CODE (${controller.toUpperCase()} - ${gComp} COMP)`)}
+${isSiemens ? 'G21 G90 G95 G40\nG75 X0 Z0\nT="ISO_TOOL" D1\nG96 S200 LIMS=2800 M3' : 'O3001 (ISO LINEAR WITH G42 NOSE COMP)\nG21 G40 G99\nG28 U0. W0.\nT0101\nG50 S2800\nG96 S200 M03'}
 G00 X${Number(mfgCfg.stockX) + 2}.0 Z2.0 M08
-G01 X${mfgCfg.stockY}.0 Z0.0 F0.15
+${gComp} G01 X${mfgCfg.stockY}.0 Z0.0 F0.15
 G01 Z-${mfgCfg.stockZ}.0
-G00 X${Number(mfgCfg.stockX) + 4}.0 Z10.0 M09
+G40 G00 X${Number(mfgCfg.stockX) + 4}.0 Z10.0 M09
 ${isSiemens ? 'G75 X0 Z0\nM5\nM30' : 'G28 U0. W0.\nM05\nM30'}`;
     }
     return `${header}
-${cmt(`ISO G-CODE & M-CODE MILLING (${controller.toUpperCase()})`)}
-${isSiemens ? `G21 G17 G90 G94 G40\nG75 Z0\nT="ENDMILL_D${mfgCfg.toolDia}" D1\nM6\nG54 G00 X0 Y0\nS2400 M3 M8\nG00 Z10` : `O3002 (ISO LINEAR & CIRCULAR MILLING)\nG21 G17 G40 G49 G80 G90\nG91 G28 Z0.0\nT01 M06\nG90 G54 G00 X0.0 Y0.0\nS2400 M03\nG43 H01 Z10.0 M08`}
+${cmt(`ISO G-CODE & M-CODE MILLING (G43 H01 & ${gComp} D01)`)}
+${isSiemens ? `G21 G17 G90 G94 G40\nG75 Z0\nT="ENDMILL_D${mfgCfg.toolDia}" D1\nM6\nG54 G00 X0 Y0\nS2400 M3 M8\nG00 Z10` : `O3002 (ISO MILLING WITH G43 & ${gComp})\nG21 G17 G40 G49 G80 G90\nG91 G28 Z0.0\nT01 M06\nG90 G54 G00 X0.0 Y0.0\nS2400 M03\nG43 H01 Z10.0 M08`}
 G01 Z-${mfgCfg.featureDepth}.0 F200.0
-G41 D01 X25.0 Y0.0 F450.0
+${gComp} D01 X25.0 Y0.0 F450.0
 G01 Y40.0
 G02 X35.0 Y50.0 R10.0
 G01 X70.0
@@ -324,44 +333,7 @@ G00 Z50.0 M09
 ${isSiemens ? 'G75 Z0\nM5\nM30' : 'G91 G28 Z0.0\nM05\nM30'}`;
   }
 
-  if (mode === 'ISO + Canned Cycle') {
-    const isoHeader = isSiemens
-      ? `; ISO FACE PASS + CANNED CYCLE\nG00 X${Number(mfgCfg.stockX) + 2} Z2 M8\nG01 X-1 Z0 F0.15\n`
-      : `(ISO FACE PASS + CANNED CYCLE)\nG00 X${Number(mfgCfg.stockX) + 2}.0 Z2.0 M08\nG01 X-1.0 Z0.0 F0.15\n`;
-    return `${header}\n${isoHeader}${baseCode}`;
-  }
-
-  if (mode === 'ISO + Macro Program') {
-    const vars = isSiemens
-      ? `; SIEMENS R-VARIABLES + ISO G-CODE\nR1=${mfgCfg.wallAllowance} ; WALL ALLOWANCE\nR2=${mfgCfg.bottomAllowance} ; BOTTOM ALLOWANCE\n`
-      : `(${controller.toUpperCase()} MACRO VARIABLES + ISO G-CODE)\n#501 = ${mfgCfg.wallAllowance} (WALL ALLOWANCE)\n#502 = ${mfgCfg.bottomAllowance} (BOTTOM ALLOWANCE)\n`;
-    return `${vars}${adaptCodeForMode(baseCode, 'ISO G-Code and M-Code', controller, domainKey, operation, workSide, mfgCfg)}`;
-  }
-
-  if (mode === 'Macro + Canned Cycle') {
-    if (isSiemens) {
-      return `${header}
-; SIEMENS R-VARIABLE IF-GOTOB + CANNED CYCLE
-R1=5 ; BATCH QUANTITY
-R2=1 ; CURRENT PART
-LOOP_PART:
-${baseCode.replace(/\nM30\s*$/, '')}
-R2=R2+1
-IF R2<=R1 GOTOB LOOP_PART
-M30`;
-    }
-    return `${header}
-(${controller.toUpperCase()} IF-GOTO MACRO + CANNED CYCLE)
-#500 = 5 (BATCH QUANTITY)
-#501 = 1 (CURRENT PART)
-N10 (BATCH LOOP)
-${baseCode.replace(/\nM30\s*$/, '')}
-#501 = #501 + 1
-IF [#501 LE #500] GOTO10
-M30`;
-  }
-
-  return `${header}\n${baseCode}`;
+  return `${header}\n${compensatedBase}`;
 }
 
 export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhatsApp }) {
@@ -386,6 +358,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   const [toolDia, setToolDia] = useState('12');
   const [toolFlutes, setToolFlutes] = useState('4');
   const [toolLength, setToolLength] = useState('35');
+  const [compMode, setCompMode] = useState(COMP_MODES[1]); // G42 default
   const [chamferDia, setChamferDia] = useState('10');
   const [chamferAngle, setChamferAngle] = useState('90');
   const [chamferSize, setChamferSize] = useState('0.5');
@@ -401,12 +374,14 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   const [bottomAllowance, setBottomAllowance] = useState('0.2');
 
   const domainKey = machineType === 'Turning' ? 'Turning' : 'Milling';
+  const showChamferCascade = machiningStage === 'Chamfering Pass';
 
   const mfgCfg = useMemo(
     () => ({
       toolDia,
       toolFlutes,
       toolLength,
+      compMode,
       chamferDia,
       chamferAngle,
       chamferSize,
@@ -423,6 +398,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       toolDia,
       toolFlutes,
       toolLength,
+      compMode,
       chamferDia,
       chamferAngle,
       chamferSize,
@@ -652,14 +628,14 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
           </select>
         </div>
 
-        {/* NEW SECTION ABOVE QUICK TEMPLATE: Tooling, Workpiece Stock, Allowances & Pass Strategy */}
+        {/* Tooling, Workpiece Stock, Allowances & Conditional Chamfer Panel */}
         <div className="bg-slate-950/90 border border-amber-500/35 rounded-xl p-3.5 space-y-3">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
               <Wrench className="w-4 h-4" />
-              <span>Tool Data, Workpiece Stock & Rough / Finish / Chamfer Strategy</span>
+              <span>Tool Data (G43 + G41/G42), Workpiece Stock & Pass Strategy</span>
             </div>
-            <span className="text-[10px] font-mono text-slate-400">Syncs with Code & 2D Sim</span>
+            <span className="text-[10px] font-mono text-slate-400">3D Sim & G-Code Linked</span>
           </div>
 
           {/* Row A: Strategy, Area Type, Wall & Bottom Finish Allowance */}
@@ -762,8 +738,8 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
             </div>
           </div>
 
-          {/* Row C: Main Cutter Data + Chamfer Tool Data */}
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
+          {/* Row C: Main Cutter Data + G41/G42 Compensation Mode */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div>
               <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Cutter Dia (mm)</label>
               <input
@@ -795,36 +771,54 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
             </div>
 
             <div>
-              <label className="block text-[10px] font-semibold text-amber-300 mb-1">Chamfer Tool Dia</label>
-              <input
-                type="number"
-                value={chamferDia}
-                onChange={(e) => setChamferDia(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-semibold text-amber-300 mb-1">Chamfer Angle (°)</label>
-              <input
-                type="number"
-                value={chamferAngle}
-                onChange={(e) => setChamferAngle(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-semibold text-amber-300 mb-1">Chamfer Size C (mm)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={chamferSize}
-                onChange={(e) => setChamferSize(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-              />
+              <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Cutter Comp (G43 + G41/G42)</label>
+              <select
+                value={compMode}
+                onChange={(e) => setCompMode(e.target.value)}
+                className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+              >
+                {COMP_MODES.map((cm) => (
+                  <option key={cm} value={cm}>{cm}</option>
+                ))}
+              </select>
             </div>
           </div>
+
+          {/* Row D: Conditional Chamfer Cascade (ONLY opens when Chamfering Pass is selected!) */}
+          {showChamferCascade && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-amber-500/30 bg-amber-500/5 p-2.5 rounded-lg">
+              <div>
+                <label className="block text-[10px] font-semibold text-amber-300 mb-1">Chamfer Tool Dia (mm)</label>
+                <input
+                  type="number"
+                  value={chamferDia}
+                  onChange={(e) => setChamferDia(e.target.value)}
+                  className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-amber-300 mb-1">Chamfer Tip Angle (°)</label>
+                <input
+                  type="number"
+                  value={chamferAngle}
+                  onChange={(e) => setChamferAngle(e.target.value)}
+                  className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-amber-300 mb-1">Chamfer Size C (mm)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={chamferSize}
+                  onChange={(e) => setChamferSize(e.target.value)}
+                  className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Quick Cycle Template Box */}
@@ -860,10 +854,10 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
           </div>
         </div>
 
-        {/* Side-by-Side G-Code Editor & Live 2D Tooling Animation */}
+        {/* Side-by-Side G-Code Editor & Live 3D Tooling Animation */}
         <form onSubmit={saveProgram} className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Sample / Active G-Code & Live Simulation</span>
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Sample / Active G-Code & 3D Simulation</span>
             <button
               type="button"
               onClick={handleCopy}
@@ -879,7 +873,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               rows="28"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              className="w-full min-h-[580px] bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs font-mono text-emerald-300 leading-relaxed focus:border-cyan-500 outline-none"
+              className="w-full min-h-[600px] bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs font-mono text-emerald-300 leading-relaxed focus:border-cyan-500 outline-none"
               required
             />
             <CncSimulator
