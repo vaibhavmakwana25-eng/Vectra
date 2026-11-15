@@ -504,7 +504,43 @@ M30`;
 }
 
 
-const TURN_MILL_SAMPLE_LIST = ["OD Pocket Milling (C + X Radial Live Tool)","OD PCD Radial Drilling (C-Axis IF/GOTO)","OD Radial Live Tapping (C + X)","VTL Face PCD Drilling (C-Axis IF/GOTO)","VTL Face Tapping (Live Tool)","VTL Face Slot & Pocket (C + X)","VTL OD / Side Live Tool (Angular / Cross)"];
+const TURN_MILL_SAMPLE_LIST = [
+  {
+    "name": "OD Pocket Milling (C + X Radial Live Tool)",
+    "title": "OD Pocket Milling - C + X Radial Live Tool",
+    "code": "%\nO7001 (OD POCKET MILLING - C AND X RADIAL LIVE TOOL)\nG21 G40 G80 G99 G90\nG28 U0. W0.\nT0202 (RADIAL ENDMILL LIVE TOOL)\nG00 X46.0 Z-15.0 C0.0\nS2500 M13\n#101 = 3.0 (RADIAL DEPTH STEP IN X)\n#102 = 38.0 (FINAL X TARGET)\n#103 = 42.0 (CURRENT X START)\nN10\n#103 = #103 - #101\nIF [#103 GE #102] GOTO 20\n#103 = #102\nN20\nG01 X#103 F180\nG01 C25.0 F400\nG01 X[#103 + 1.5] F300\nG01 C0.0 F400\nIF [#103 GT #102] GOTO 10\nG00 X75.0\nM15\nG28 U0. W0.\nM30\n%"
+  },
+  {
+    "name": "OD PCD Radial Drilling (C-Axis IF/GOTO)",
+    "title": "OD PCD Radial Drilling - C-Axis Loop",
+    "code": "%\nO7002 (OD PCD RADIAL DRILLING - C AXIS LOOP)\nG21 G40 G80 G99 G90\nG28 U0. W0.\nT0303 (RADIAL DRILL LIVE TOOL)\n#110 = 0.0 (START C ANGLE)\n#111 = 90.0 (ANGLE STEP = 360 / NO OF HOLES)\n#112 = 360.0 (END ANGLE)\n#113 = -18.0 (Z POSITION ON OD)\n#114 = 32.0 (FINAL RADIAL DRILL DEPTH X)\nS1800 M13\nG00 Z#113 X55.0 C#110\nN10\nG00 C#110\nG01 X#114 F140\nG00 X55.0\n#110 = #110 + #111\nIF [#110 LT #112] GOTO 10\nG00 X75.0\nM15\nG28 U0. W0.\nM30\n%"
+  },
+  {
+    "name": "OD Radial Live Tapping (C + X)",
+    "title": "OD Radial Live Tapping - C + X",
+    "code": "%\nO7003 (OD RADIAL LIVE TAPPING)\nG21 G40 G80 G99 G90\nG28 U0. W0.\nT0404 (RADIAL TAP LIVE TOOL)\nG00 C0.0 Z-18.0 X55.0\nS400 M13\nG01 X34.0 F0.8 (PITCH 0.8 MM/REV)\nG01 X55.0 F1.6\nM15\nG28 U0. W0.\nM30\n%"
+  },
+  {
+    "name": "VTL Face PCD Drilling (C-Axis IF/GOTO)",
+    "title": "VTL Face PCD Drilling - C-Axis Loop",
+    "code": "%\nO8001 (VTL FACE PCD DRILLING - C AXIS LOOP)\nG21 G40 G80 G94 G54 G90\nT0303 (VTL FACE DRILL LIVE TOOL)\n#110 = 0.0 (START C ANGLE)\n#111 = 60.0 (STEP ANGLE = 360 / 6 HOLES)\n#112 = 360.0 (END ANGLE)\n#113 = 180.0 (PCD RADIUS / X POSITION)\n#114 = 22.0 (DRILL DEPTH Z)\nS1500 M13\nG00 X#113 C#110 Z10.0\nN10\nG00 C#110\nG01 Z-[0 - #114] F180\nG00 Z10.0\n#110 = #110 + #111\nIF [#110 LT #112] GOTO 10\nG00 Z150.0 M15\nM30\n%"
+  },
+  {
+    "name": "VTL Face Tapping (Live Tool)",
+    "title": "VTL Face Live Tapping",
+    "code": "%\nO8002 (VTL FACE LIVE TAPPING)\nG21 G40 G80 G94 G54 G90\nT0404 (VTL FACE TAP LIVE TOOL)\nG00 X180.0 C0.0 Z20.0\nS450 M13\nG01 Z-18.0 F1.25 (PITCH 1.25 MM)\nG01 Z20.0 F2.5\nG00 Z150.0 M15\nM30\n%"
+  },
+  {
+    "name": "VTL Face Slot & Pocket (C + X)",
+    "title": "VTL Face Slot & Pocket - C + X",
+    "code": "%\nO8003 (VTL FACE SLOT & POCKET - C + X)\nG21 G40 G80 G94 G54 G90\nT0202 (VTL ENDMILL LIVE TOOL)\n#120 = 6.0 (TOTAL FACE DEPTH Z)\n#121 = 2.0 (Z STEP DEPTH)\n#122 = 0.0 (CURRENT Z STEP)\nS2200 M13\nG00 X160.0 C0.0 Z10.0\nN10\n#122 = #122 + #121\nIF [#122 LE #120] GOTO 20\n#122 = #120\nN20\nG01 Z-[0 - #122] F150\nG01 X200.0 C15.0 F320\nG01 X160.0 C0.0 F320\nIF [#122 LT #120] GOTO 10\nG00 Z150.0 M15\nM30\n%"
+  },
+  {
+    "name": "VTL OD / Side Live Tool (Angular / Cross)",
+    "title": "VTL OD / Side Live Tool",
+    "code": "%\nO8004 (VTL OD / SIDE LIVE TOOL)\nG21 G40 G80 G94 G54 G90\nT0505 (VTL ANGULAR / RADIAL LIVE TOOL)\nS1600 M13\nG00 X260.0 C0.0 Z-25.0\nG01 X220.0 F180\nG00 X265.0\nG00 C90.0\nG01 X220.0 F180\nG00 X320.0 Z150.0 M15\nM30\n%"
+  }
+];
 
 const getTurnMillSampleProgram = (sampleName = '', ctrlName = 'Fanuc') => {
   const name = String(sampleName || '');
@@ -801,7 +837,17 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   // Auto-calculated Thread Single Depth Height H = 0.61343 * Pitch
   const threadHeight = useMemo(() => {
     const p = Number(threadPitch) || 0;
-    return (0.61343 * p).toFixed(3);
+    
+  // TURN_MILL_SYNC_EFFECT
+  if (operation === 'Turn-Mill' && typeof TURN_MILL_SAMPLE_LIST !== 'undefined') {
+    const activeTm = TURN_MILL_SAMPLE_LIST[Number(selectedTemplateIdx) % TURN_MILL_SAMPLE_LIST.length] || TURN_MILL_SAMPLE_LIST[0];
+    if (activeTm && typeof code === 'string' && !code.includes(activeTm.name.split(' (')[0])) {
+      if (typeof setCode === 'function') setCode(activeTm.code);
+      if (typeof setTitle === 'function') setTitle(activeTm.title || activeTm.name);
+    }
+  }
+
+  return (0.61343 * p).toFixed(3);
   }, [threadPitch]);
 
   const handleThreadPitchChange = (newPitch) => {
@@ -1005,6 +1051,14 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   };
 
   const handleTemplateChange = (idx) => {
+    if (operation === 'Turn-Mill') {
+      const i = Math.max(0, Math.min(TURN_MILL_SAMPLE_LIST.length - 1, Number(valOrIdx ?? 0)));
+      const item = TURN_MILL_SAMPLE_LIST[i] || TURN_MILL_SAMPLE_LIST[0];
+      if (typeof setSelectedTemplateIdx === 'function') setSelectedTemplateIdx(i);
+      if (typeof setTitle === 'function') setTitle(item.title || item.name);
+      if (typeof setCode === 'function') setCode(item.code);
+      return;
+    }
     const i = Number(idx);
     setSelectedTemplateIdx(i);
     if (filteredTemplates[i]) {
@@ -1706,7 +1760,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               <label className="block text-[11px] font-semibold text-slate-400 mb-1">Select Cycle Sample</label>
               <select
                 value={selectedTemplateIdx}
-                onChange={(e) => handleTemplateChange(e.target.value)}
+                onChange={(e) => handleTemplateChange(Number(e.target.value))}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
               >
                 {(operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_LIST : filteredTemplates).map((tpl, idx) => (
