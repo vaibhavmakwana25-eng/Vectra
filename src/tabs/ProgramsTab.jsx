@@ -48,7 +48,11 @@ function classifyTemplate(domainKey, name) {
     else if (n.includes('MILL') || n.includes('POCKET') || n.includes('SPIGOT') || n.includes('SLOT')) op = 'Milling & Pocket';
 
     let side = 'Standard';
-    if (n.includes('POCKET') || n.includes('SLOT') || n.includes('SPIGOT')) side = 'Pocket & Boss';
+    if (n.includes('CIRCULAR POCKET')) side = 'Circular Pocket';
+    else if (n.includes('RECTANGULAR POCKET')) side = 'Rectangular Pocket';
+    else if (n.includes('CIRCULAR SPIGOT')) side = 'Circular Spigot';
+    else if (n.includes('RECTANGULAR SPIGOT')) side = 'Rectangular Spigot';
+    else if (n.includes('SLOT')) side = 'Slot Milling';
     else if (n.includes('DEEP') || n.includes('PECK') || n.includes('CHIP') || n.includes('FINE') || n.includes('BACK')) side = 'Deep & Precision';
     return { op, side };
   }
@@ -505,6 +509,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               workSide={workSide}
               operation={operation}
               controller={controller}
+              templateName={filteredTemplates[selectedTemplateIdx]?.name || title}
             />
           </div>
 
@@ -560,4 +565,5 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
+
 
