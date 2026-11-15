@@ -504,717 +504,9 @@ M30`;
 }
 
 
-const buildTurnMillSampleCode = (ctrlName = 'Fanuc') => {
-  const u = String(ctrlName || '').toUpperCase();
-  if (u.includes('SIEMENS')) {
-    return [
-      '; SIEMENS SINUMERIK - TURN-MILL LIVE TOOL',
-      'T1 D1',
-      'SPOS=0',
-      'G94 S1500 M13',
-      'CYCLE83(5.0, 0.0, 2.0, -12.0, , 4.0, , , , , 1)',
-      'G00 Z150.0 M05',
-      'M30'
-    ].join('\n');
-  }
-  if (u.includes('MITSUBISHI')) {
-    return [
-      '%',
-      'O6001 (MITSUBISHI TURN-MILL LIVE TOOL)',
-      'G21 G40 G80 G94 G54 G90',
-      'T01 M06',
-      'G00 C0.0',
-      'S1500 M13',
-      'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
-      'G80',
-      'G00 Z100.0 M05',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-  return [
-    '%',
-    'O6001 (FANUC TURN-MILL / C-AXIS LIVE TOOL)',
-    'G21 G40 G80 G94 G54 G90',
-    'T01 M06',
-    'S1500 M13',
-    'G00 C0.0 Z10.0',
-    'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
-    'G80',
-    'G00 C90.0',
-    'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
-    'G80',
-    'G00 Z100.0 M05',
-    'M30',
-    '%'
-  ].join('\n');
-};
+const TURN_MILL_SAMPLE_LIST = ["OD Pocket Milling (C + X Radial Live Tool)","OD PCD Radial Drilling (C-Axis IF/GOTO)","OD Radial Live Tapping (C + X)","VTL Face PCD Drilling (C-Axis IF/GOTO)","VTL Face Tapping (Live Tool)","VTL Face Slot & Pocket (C + X)","VTL OD / Side Live Tool (Angular / Cross)"];
 
-
-const buildTurnMillSampleByName = (sampleName = '', ctrlName = 'Fanuc') => {
-  const u = String(ctrlName || '').toUpperCase();
-  const label = String(sampleName || 'Turn-Mill Live Tool');
-  if (u.includes('SIEMENS')) {
-    return [
-      '; SIEMENS SINUMERIK - ' + label.toUpperCase(),
-      'T1 D1',
-      'SPOS=0',
-      'G94 S1500 M13',
-      'CYCLE83(5.0, 0.0, 2.0, -12.0, , 4.0, , , , , 1)',
-      'G00 Z150.0 M05',
-      'M30'
-    ].join('\n');
-  }
-  if (u.includes('MITSUBISHI')) {
-    return [
-      '%',
-      'O6010 (MITSUBISHI ' + label.toUpperCase() + ')',
-      'G21 G40 G80 G94 G54 G90',
-      'T01 M06',
-      'G00 C0.0',
-      'S1500 M13',
-      'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
-      'G80',
-      'G00 Z100.0 M05',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-  return [
-    '%',
-    'O6010 (FANUC ' + label.toUpperCase() + ')',
-    'G21 G40 G80 G94 G54 G90',
-    'T01 M06',
-    'S1500 M13',
-    'G00 C0.0 Z10.0',
-    'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
-    'G80',
-    'G00 C90.0',
-    'G83 X0.0 Y0.0 Z-12.0 Q4.0 R2.0 F220',
-    'G80',
-    'G00 Z100.0 M05',
-    'M30',
-    '%'
-  ].join('\n');
-};
-
-
-const buildOdTurnMillCode = (sampleName = '', ctrlName = 'Fanuc') => {
-  const name = String(sampleName || '');
-  const u = String(ctrlName || '').toUpperCase();
-
-  if (name.includes('Pocket')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - OD POCKET MILLING (C + X RADIAL)',
-        'T2 D1',
-        'SPOS=0',
-        'G94 S2500 M13',
-        'G00 X46.0 Z-15.0',
-        'POCKET4(2.0, 0.0, 1.0, -3.0, 20.0, 25.0, 0.0, 0.0, 1.5, 0.2, 0.1, 180, 120, 1, 21)',
-        'G00 X100.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    if (u.includes('MITSUBISHI')) {
-      return [
-        '%',
-        'O7001 (MITSUBISHI OD POCKET MILLING - C + X RADIAL)',
-        'G21 G40 G80 G99 G90',
-        'T0202',
-        'G00 C0.0 Z-15.0 X55.0',
-        'S2500 M13',
-        'G01 X38.0 F180',
-        'G01 C30.0 F400',
-        'G01 X42.0 F300',
-        'G01 C0.0 F400',
-        'G00 X100.0 M15',
-        'M30',
-        '%'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O7001 (FANUC OD POCKET MILLING - C AND X RADIAL LIVE TOOL)',
-      'G21 G40 G80 G99 G90',
-      'G28 U0. W0.',
-      'T0202 (RADIAL ENDMILL LIVE TOOL)',
-      'G00 X46.0 Z-15.0 C0.0',
-      'S2500 M13',
-      '#101 = 3.0 (RADIAL DEPTH STEP IN X)',
-      '#102 = 38.0 (FINAL X TARGET)',
-      '#103 = 42.0 (CURRENT X START)',
-      'N10',
-      '#103 = #103 - #101',
-      'IF [#103 GE #102] GOTO 20',
-      '#103 = #102',
-      'N20',
-      'G01 X#103 F180',
-      'G01 C25.0 F400',
-      'G01 X[#103 + 1.5] F300',
-      'G01 C0.0 F400',
-      'IF [#103 GT #102] GOTO 10',
-      'G00 X75.0',
-      'M15',
-      'G28 U0. W0.',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  if (name.includes('Tapping')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - OD RADIAL LIVE TAPPING',
-        'T4 D1',
-        'SPOS=0',
-        'G94 S400 M13',
-        'G00 Z-18.0 X55.0',
-        'CYCLE84(2.0, 0.0, 1.0, -14.0, , 0.8, 3, 400, 400, 0.0, 0, 1, 0)',
-        'G00 X100.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    if (u.includes('MITSUBISHI')) {
-      return [
-        '%',
-        'O7003 (MITSUBISHI OD RADIAL LIVE TAPPING)',
-        'G21 G40 G80 G99 G90',
-        'T0404',
-        'G00 C0.0 Z-18.0 X55.0',
-        'S400 M13',
-        'G84 X34.0 R48.0 F0.8',
-        'G80',
-        'G00 X100.0 M15',
-        'M30',
-        '%'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O7003 (FANUC OD RADIAL LIVE TAPPING)',
-      'G21 G40 G80 G99 G90',
-      'G28 U0. W0.',
-      'T0404 (RADIAL TAP LIVE TOOL)',
-      'G00 C0.0 Z-18.0 X55.0',
-      'S400 M13',
-      'G01 X34.0 F0.8 (PITCH 0.8 MM/REV)',
-      'G01 X55.0 F1.6',
-      'M15',
-      'G28 U0. W0.',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  // Default: OD PCD Radial Drilling (C-Axis IF/GOTO)
-  if (u.includes('SIEMENS')) {
-    return [
-      '; SIEMENS SINUMERIK - OD PCD RADIAL DRILLING',
-      'T3 D1',
-      'SPOS=0',
-      'G94 S1800 M13',
-      'G00 Z-18.0 X55.0',
-      'CYCLE83(2.0, 0.0, 1.0, -16.0, , 4.0, , , , , 1)',
-      'G00 X100.0 M05',
-      'M30'
-    ].join('\n');
-  }
-  if (u.includes('MITSUBISHI')) {
-    return [
-      '%',
-      'O7002 (MITSUBISHI OD PCD RADIAL DRILLING)',
-      'G21 G40 G80 G99 G90',
-      'T0303',
-      'G00 C0.0 Z-18.0 X55.0',
-      'S1800 M13',
-      'G83 X32.0 R48.0 Q4.0 F140',
-      'G80',
-      'G00 X100.0 M15',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-  return [
-    '%',
-    'O7002 (FANUC OD PCD RADIAL DRILLING - C AXIS LOOP)',
-    'G21 G40 G80 G99 G90',
-    'G28 U0. W0.',
-    'T0303 (RADIAL DRILL LIVE TOOL)',
-    '#110 = 0.0 (START C ANGLE)',
-    '#111 = 90.0 (ANGLE STEP = 360 / NO OF HOLES)',
-    '#112 = 360.0 (END ANGLE)',
-    '#113 = -18.0 (Z POSITION ON OD)',
-    '#114 = 32.0 (FINAL RADIAL DRILL DEPTH X)',
-    'S1800 M13',
-    'G00 Z#113 X55.0 C#110',
-    'N10',
-    'G00 C#110',
-    'G01 X#114 F140',
-    'G00 X55.0',
-    '#110 = #110 + #111',
-    'IF [#110 LT #112] GOTO 10',
-    'G00 X75.0',
-    'M15',
-    'G28 U0. W0.',
-    'M30',
-    '%'
-  ].join('\n');
-};
-
-
-const buildVtlTurnMillCode = (sampleName = '', ctrlName = 'Fanuc') => {
-  const name = String(sampleName || '');
-  const u = String(ctrlName || '').toUpperCase();
-
-  if (name.includes('Tapping')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - VTL FACE LIVE TAPPING',
-        'T4 D1',
-        'SPOS=0',
-        'G94 S450 M13',
-        'G00 X180.0 C0.0 Z20.0',
-        'CYCLE84(20.0, 0.0, 5.0, -18.0, , 1.25, 3, 450, 450, 0.0, 0, 1, 0)',
-        'G00 Z150.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    if (u.includes('MITSUBISHI')) {
-      return [
-        '%',
-        'O8002 (MITSUBISHI VTL FACE LIVE TAPPING)',
-        'G21 G40 G80 G94 G54 G90',
-        'T0404',
-        'G00 X180.0 C0.0 Z20.0',
-        'S450 M13',
-        'G84 X180.0 Y0.0 Z-18.0 R5.0 F1.25',
-        'G80',
-        'G00 Z150.0 M15',
-        'M30',
-        '%'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O8002 (FANUC VTL FACE LIVE TAPPING)',
-      'G21 G40 G80 G94 G54 G90',
-      'T0404 (VTL FACE TAP LIVE TOOL)',
-      'G00 X180.0 C0.0 Z20.0',
-      'S450 M13',
-      'G01 Z-18.0 F1.25 (PITCH 1.25 MM)',
-      'G01 Z20.0 F2.5',
-      'G00 Z150.0 M15',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  if (name.includes('Slot')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - VTL FACE SLOT & POCKET (C + X)',
-        'T2 D1',
-        'SPOS=0',
-        'G94 S2200 M13',
-        'G00 X160.0 C0.0 Z10.0',
-        'SLOT1(160.0, 0.0, 10.0, 5.0, -6.0, 30.0, 12.0, 0.0, 2.0, 0.2, 0.1, 220, 140, 1)',
-        'G00 Z150.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    if (u.includes('MITSUBISHI')) {
-      return [
-        '%',
-        'O8003 (MITSUBISHI VTL FACE SLOT & POCKET)',
-        'G21 G40 G80 G94 G54 G90',
-        'T0202',
-        'G00 X160.0 C0.0 Z10.0',
-        'S2200 M13',
-        'G01 Z-6.0 F160',
-        'G01 X200.0 C20.0 F350',
-        'G01 Z10.0',
-        'G00 Z150.0 M15',
-        'M30',
-        '%'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O8003 (FANUC VTL FACE SLOT & POCKET - C + X)',
-      'G21 G40 G80 G94 G54 G90',
-      'T0202 (VTL ENDMILL LIVE TOOL)',
-      '#120 = 6.0 (TOTAL FACE DEPTH Z)',
-      '#121 = 2.0 (Z STEP DEPTH)',
-      '#122 = 0.0 (CURRENT Z STEP)',
-      'S2200 M13',
-      'G00 X160.0 C0.0 Z10.0',
-      'N10',
-      '#122 = #122 + #121',
-      'IF [#122 LE #120] GOTO 20',
-      '#122 = #120',
-      'N20',
-      'G01 Z-[0 - #122] F150',
-      'G01 X200.0 C15.0 F320',
-      'G01 X160.0 C0.0 F320',
-      'IF [#122 LT #120] GOTO 10',
-      'G00 Z150.0 M15',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  if (name.includes('OD / Side')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - VTL OD / SIDE LIVE TOOL',
-        'T5 D1',
-        'SPOS=0',
-        'G94 S1600 M13',
-        'G00 X260.0 C0.0 Z-25.0',
-        'CYCLE83(10.0, 0.0, 5.0, -20.0, , 5.0, , , , , 1)',
-        'G00 X320.0 Z150.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    if (u.includes('MITSUBISHI')) {
-      return [
-        '%',
-        'O8004 (MITSUBISHI VTL OD / SIDE LIVE TOOL)',
-        'G21 G40 G80 G94 G54 G90',
-        'T0505',
-        'G00 X260.0 C0.0 Z-25.0',
-        'S1600 M13',
-        'G83 X220.0 R255.0 Q5.0 F180',
-        'G80',
-        'G00 X320.0 Z150.0 M15',
-        'M30',
-        '%'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O8004 (FANUC VTL OD / SIDE LIVE TOOL)',
-      'G21 G40 G80 G94 G54 G90',
-      'T0505 (VTL ANGULAR / RADIAL LIVE TOOL)',
-      'S1600 M13',
-      'G00 X260.0 C0.0 Z-25.0',
-      'G01 X220.0 F180',
-      'G00 X265.0',
-      'G00 C90.0',
-      'G01 X220.0 F180',
-      'G00 X320.0 Z150.0 M15',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  // Default: VTL Face PCD Drilling (C-Axis IF/GOTO)
-  if (u.includes('SIEMENS')) {
-    return [
-      '; SIEMENS SINUMERIK - VTL FACE PCD DRILLING',
-      'T3 D1',
-      'SPOS=0',
-      'G94 S1500 M13',
-      'G00 X180.0 C0.0 Z20.0',
-      'CYCLE83(20.0, 0.0, 5.0, -22.0, , 5.0, , , , , 1)',
-      'G00 Z150.0 M05',
-      'M30'
-    ].join('\n');
-  }
-  if (u.includes('MITSUBISHI')) {
-    return [
-      '%',
-      'O8001 (MITSUBISHI VTL FACE PCD DRILLING)',
-      'G21 G40 G80 G94 G54 G90',
-      'T0303',
-      'G00 X180.0 C0.0 Z20.0',
-      'S1500 M13',
-      'G83 X180.0 Y0.0 Z-22.0 Q5.0 R5.0 F180',
-      'G80',
-      'G00 Z150.0 M15',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-  return [
-    '%',
-    'O8001 (FANUC VTL FACE PCD DRILLING - C AXIS LOOP)',
-    'G21 G40 G80 G94 G54 G90',
-    'T0303 (VTL FACE DRILL LIVE TOOL)',
-    '#110 = 0.0 (START C ANGLE)',
-    '#111 = 60.0 (STEP ANGLE = 360 / 6 HOLES)',
-    '#112 = 360.0 (END ANGLE)',
-    '#113 = 180.0 (PCD RADIUS / X POSITION)',
-    '#114 = 22.0 (DRILL DEPTH Z)',
-    'S1500 M13',
-    'G00 X#113 C#110 Z10.0',
-    'N10',
-    'G00 C#110',
-    'G01 Z-[0 - #114] F180',
-    'G00 Z10.0',
-    '#110 = #110 + #111',
-    'IF [#110 LT #112] GOTO 10',
-    'G00 Z150.0 M15',
-    'M30',
-    '%'
-  ].join('\n');
-};
-
-
-const buildAnyTurnMillCode = (sampleName = '', ctrlName = 'Fanuc') => {
-  const name = String(sampleName || '');
-  const u = String(ctrlName || '').toUpperCase();
-
-  if (name.startsWith('OD ') && name.includes('Pocket')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - OD POCKET MILLING (C + X RADIAL)',
-        'T2 D1',
-        'SPOS=0',
-        'G94 S2500 M13',
-        'G00 X46.0 Z-15.0',
-        'POCKET4(2.0, 0.0, 1.0, -3.0, 20.0, 25.0, 0.0, 0.0, 1.5, 0.2, 0.1, 180, 120, 1, 21)',
-        'G00 X100.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O7001 (FANUC OD POCKET MILLING - C AND X RADIAL LIVE TOOL)',
-      'G21 G40 G80 G99 G90',
-      'G28 U0. W0.',
-      'T0202 (RADIAL ENDMILL LIVE TOOL)',
-      'G00 X46.0 Z-15.0 C0.0',
-      'S2500 M13',
-      '#101 = 3.0 (RADIAL DEPTH STEP IN X)',
-      '#102 = 38.0 (FINAL X TARGET)',
-      '#103 = 42.0 (CURRENT X START)',
-      'N10',
-      '#103 = #103 - #101',
-      'IF [#103 GE #102] GOTO 20',
-      '#103 = #102',
-      'N20',
-      'G01 X#103 F180',
-      'G01 C25.0 F400',
-      'G01 X[#103 + 1.5] F300',
-      'G01 C0.0 F400',
-      'IF [#103 GT #102] GOTO 10',
-      'G00 X75.0',
-      'M15',
-      'G28 U0. W0.',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  if (name.startsWith('OD ') && name.includes('Tapping')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - OD RADIAL LIVE TAPPING',
-        'T4 D1',
-        'SPOS=0',
-        'G94 S400 M13',
-        'G00 Z-18.0 X55.0',
-        'CYCLE84(2.0, 0.0, 1.0, -14.0, , 0.8, 3, 400, 400, 0.0, 0, 1, 0)',
-        'G00 X100.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O7003 (FANUC OD RADIAL LIVE TAPPING)',
-      'G21 G40 G80 G99 G90',
-      'G28 U0. W0.',
-      'T0404 (RADIAL TAP LIVE TOOL)',
-      'G00 C0.0 Z-18.0 X55.0',
-      'S400 M13',
-      'G01 X34.0 F0.8 (PITCH 0.8 MM/REV)',
-      'G01 X55.0 F1.6',
-      'M15',
-      'G28 U0. W0.',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  if (name.startsWith('OD ')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - OD PCD RADIAL DRILLING',
-        'T3 D1',
-        'SPOS=0',
-        'G94 S1800 M13',
-        'G00 Z-18.0 X55.0',
-        'CYCLE83(2.0, 0.0, 1.0, -16.0, , 4.0, , , , , 1)',
-        'G00 X100.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O7002 (FANUC OD PCD RADIAL DRILLING - C AXIS LOOP)',
-      'G21 G40 G80 G99 G90',
-      'G28 U0. W0.',
-      'T0303 (RADIAL DRILL LIVE TOOL)',
-      '#110 = 0.0 (START C ANGLE)',
-      '#111 = 90.0 (ANGLE STEP = 360 / NO OF HOLES)',
-      '#112 = 360.0 (END ANGLE)',
-      '#113 = -18.0 (Z POSITION ON OD)',
-      '#114 = 32.0 (FINAL RADIAL DRILL DEPTH X)',
-      'S1800 M13',
-      'G00 Z#113 X55.0 C#110',
-      'N10',
-      'G00 C#110',
-      'G01 X#114 F140',
-      'G00 X55.0',
-      '#110 = #110 + #111',
-      'IF [#110 LT #112] GOTO 10',
-      'G00 X75.0',
-      'M15',
-      'G28 U0. W0.',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  if (name.startsWith('VTL ') && name.includes('Tapping')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - VTL FACE LIVE TAPPING',
-        'T4 D1',
-        'SPOS=0',
-        'G94 S450 M13',
-        'G00 X180.0 C0.0 Z20.0',
-        'CYCLE84(20.0, 0.0, 5.0, -18.0, , 1.25, 3, 450, 450, 0.0, 0, 1, 0)',
-        'G00 Z150.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O8002 (FANUC VTL FACE LIVE TAPPING)',
-      'G21 G40 G80 G94 G54 G90',
-      'T0404 (VTL FACE TAP LIVE TOOL)',
-      'G00 X180.0 C0.0 Z20.0',
-      'S450 M13',
-      'G01 Z-18.0 F1.25 (PITCH 1.25 MM)',
-      'G01 Z20.0 F2.5',
-      'G00 Z150.0 M15',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  if (name.startsWith('VTL ') && name.includes('Slot')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - VTL FACE SLOT & POCKET (C + X)',
-        'T2 D1',
-        'SPOS=0',
-        'G94 S2200 M13',
-        'G00 X160.0 C0.0 Z10.0',
-        'SLOT1(160.0, 0.0, 10.0, 5.0, -6.0, 30.0, 12.0, 0.0, 2.0, 0.2, 0.1, 220, 140, 1)',
-        'G00 Z150.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O8003 (FANUC VTL FACE SLOT & POCKET - C + X)',
-      'G21 G40 G80 G94 G54 G90',
-      'T0202 (VTL ENDMILL LIVE TOOL)',
-      '#120 = 6.0 (TOTAL FACE DEPTH Z)',
-      '#121 = 2.0 (Z STEP DEPTH)',
-      '#122 = 0.0 (CURRENT Z STEP)',
-      'S2200 M13',
-      'G00 X160.0 C0.0 Z10.0',
-      'N10',
-      '#122 = #122 + #121',
-      'IF [#122 LE #120] GOTO 20',
-      '#122 = #120',
-      'N20',
-      'G01 Z-[0 - #122] F150',
-      'G01 X200.0 C15.0 F320',
-      'G01 X160.0 C0.0 F320',
-      'IF [#122 LT #120] GOTO 10',
-      'G00 Z150.0 M15',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  if (name.startsWith('VTL ') && name.includes('OD / Side')) {
-    if (u.includes('SIEMENS')) {
-      return [
-        '; SIEMENS SINUMERIK - VTL OD / SIDE LIVE TOOL',
-        'T5 D1',
-        'SPOS=0',
-        'G94 S1600 M13',
-        'G00 X260.0 C0.0 Z-25.0',
-        'CYCLE83(10.0, 0.0, 5.0, -20.0, , 5.0, , , , , 1)',
-        'G00 X320.0 Z150.0 M05',
-        'M30'
-      ].join('\n');
-    }
-    return [
-      '%',
-      'O8004 (FANUC VTL OD / SIDE LIVE TOOL)',
-      'G21 G40 G80 G94 G54 G90',
-      'T0505 (VTL ANGULAR / RADIAL LIVE TOOL)',
-      'S1600 M13',
-      'G00 X260.0 C0.0 Z-25.0',
-      'G01 X220.0 F180',
-      'G00 X265.0',
-      'G00 C90.0',
-      'G01 X220.0 F180',
-      'G00 X320.0 Z150.0 M15',
-      'M30',
-      '%'
-    ].join('\n');
-  }
-
-  if (u.includes('SIEMENS')) {
-    return [
-      '; SIEMENS SINUMERIK - VTL FACE PCD DRILLING',
-      'T3 D1',
-      'SPOS=0',
-      'G94 S1500 M13',
-      'G00 X180.0 C0.0 Z20.0',
-      'CYCLE83(20.0, 0.0, 5.0, -22.0, , 5.0, , , , , 1)',
-      'G00 Z150.0 M05',
-      'M30'
-    ].join('\n');
-  }
-
-  return [
-    '%',
-    'O8001 (FANUC VTL FACE PCD DRILLING - C AXIS LOOP)',
-    'G21 G40 G80 G94 G54 G90',
-    'T0303 (VTL FACE DRILL LIVE TOOL)',
-    '#110 = 0.0 (START C ANGLE)',
-    '#111 = 60.0 (STEP ANGLE = 360 / 6 HOLES)',
-    '#112 = 360.0 (END ANGLE)',
-    '#113 = 180.0 (PCD RADIUS / X POSITION)',
-    '#114 = 22.0 (DRILL DEPTH Z)',
-    'S1500 M13',
-    'G00 X#113 C#110 Z10.0',
-    'N10',
-    'G00 C#110',
-    'G01 Z-[0 - #114] F180',
-    'G00 Z10.0',
-    '#110 = #110 + #111',
-    'IF [#110 LT #112] GOTO 10',
-    'G00 Z150.0 M15',
-    'M30',
-    '%'
-  ].join('\n');
-};
-
-
-const TURN_MILL_SAMPLE_OPTIONS = ["OD Pocket Milling (C + X Radial Live Tool)","OD PCD Radial Drilling (C-Axis IF/GOTO)","OD Radial Live Tapping (C + X)","VTL Face PCD Drilling (C-Axis IF/GOTO)","VTL Face Tapping (Live Tool)","VTL Face Slot & Pocket (C + X)","VTL OD / Side Live Tool (Angular / Cross)"];
-
-const buildTurnMillSampleOutput = (sampleName = '', ctrlName = 'Fanuc') => {
+const getTurnMillSampleProgram = (sampleName = '', ctrlName = 'Fanuc') => {
   const name = String(sampleName || '');
   const u = String(ctrlName || '').toUpperCase();
 
@@ -1766,7 +1058,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               onChange={(e) => setController(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
             >
-              {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : CONTROLLERS).map((ctrl) => (
+              {CONTROLLERS.map((ctrl) => (
                 <option key={ctrl} value={ctrl}>{ctrl}</option>
               ))}
             </select>
@@ -1779,7 +1071,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               onChange={(e) => handleCategoryChange(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
             >
-              {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : categories).map((cat) => (
+              {categories.map((cat) => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
@@ -1821,7 +1113,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               onChange={(e) => setOperation(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
             >
-              {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : operationOptions).map((op) => (
+              {operationOptions.map((op) => (
                 <option key={op} value={op}>{op}</option>
               ))}
             </select>
@@ -1836,7 +1128,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               onChange={(e) => setWorkSide(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
             >
-              {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : sideOptions).map((s) => (
+              {sideOptions.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -1853,7 +1145,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
             onChange={(e) => setProgramMode(e.target.value)}
             className="w-full bg-slate-950 border border-cyan-500/40 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-400 outline-none"
           >
-            {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : PROGRAM_MODES).map((m) => (
+            {PROGRAM_MODES.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
@@ -2027,7 +1319,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                       onChange={(e) => setDrillType(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                     >
-                      {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : DRILL_TYPES).map((dt) => (
+                      {DRILL_TYPES.map((dt) => (
                         <option key={dt} value={dt}>{dt}</option>
                       ))}
                     </select>
@@ -2083,7 +1375,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                         }}
                         className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                       >
-                        {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : STANDARD_TAPS).map((t) => (
+                        {STANDARD_TAPS.map((t) => (
                           <option key={t.label} value={t.label}>{t.label}</option>
                         ))}
                       </select>
@@ -2154,7 +1446,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                           }}
                           className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                         >
-                          {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : STANDARD_THREADS).map((th) => (
+                          {STANDARD_THREADS.map((th) => (
                             <option key={th.label} value={th.label}>{th.label}</option>
                           ))}
                         </select>
@@ -2249,7 +1541,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                       onChange={(e) => setInsertType(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                     >
-                      {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : TURNING_INSERTS).map((ins) => (
+                      {TURNING_INSERTS.map((ins) => (
                         <option key={ins} value={ins}>{ins}</option>
                       ))}
                     </select>
@@ -2274,7 +1566,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                       onChange={(e) => setCompMode(e.target.value)}
                       className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                     >
-                      {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : COMP_MODES).map((cm) => (
+                      {COMP_MODES.map((cm) => (
                         <option key={cm} value={cm}>{cm}</option>
                       ))}
                     </select>
@@ -2318,7 +1610,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                   onChange={(e) => setCompMode(e.target.value)}
                   className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                 >
-                  {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : COMP_MODES).map((cm) => (
+                  {COMP_MODES.map((cm) => (
                     <option key={cm} value={cm}>{cm}</option>
                   ))}
                 </select>
@@ -2417,7 +1709,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                 onChange={(e) => handleTemplateChange(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
               >
-                {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : filteredTemplates).map((tpl, idx) => (
+                {(operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_LIST : filteredTemplates).map((tpl, idx) => (
                   <option key={tpl.name} value={idx}>{tpl.name}</option>
                 ))}
               </select>
@@ -2483,7 +1775,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">
           Saved Programs Vault ({programs.length})
         </h3>
-        {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_SAMPLE_OPTIONS : programs).map((p) => (
+        {programs.map((p) => (
           <div key={p.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-2">
             <div className="flex justify-between items-center">
               <div>
@@ -2512,7 +1804,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                 )}
               </div>
             </div>
-            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{(typeof operation !== 'undefined' && operation === 'Turn-Mill') ? buildTurnMillSampleOutput(typeof selectedSample !== 'undefined' ? selectedSample : TURN_MILL_SAMPLE_OPTIONS[0], typeof controller !== 'undefined' ? controller : 'Fanuc') : ((typeof selectedSample !== 'undefined' && (/^(OD |VTL )/.test(String(selectedSample)))) || (typeof operation !== 'undefined' && operation === 'Turn-Mill') ? buildAnyTurnMillCode(typeof selectedSample !== 'undefined' ? selectedSample : operation, typeof controller !== 'undefined' ? controller : 'Fanuc') : ((typeof selectedSample !== 'undefined' && String(selectedSample).startsWith('VTL ')) ? buildVtlTurnMillCode(selectedSample, typeof controller !== 'undefined' ? controller : 'Fanuc') : ((typeof selectedSample !== 'undefined' && String(selectedSample).startsWith('OD ')) ? buildOdTurnMillCode(selectedSample, typeof controller !== 'undefined' ? controller : 'Fanuc') : ((typeof selectedSample !== 'undefined' && String(selectedSample).startsWith('Turn-Mill')) || (typeof operation !== 'undefined' && operation === 'Turn-Mill') ? buildTurnMillSampleByName(typeof selectedSample !== 'undefined' ? selectedSample : operation, typeof controller !== 'undefined' ? controller : 'Fanuc') : (operation === 'Turn-Mill' ? buildTurnMillSampleCode(controller, operation) : (p.code))))))}</pre>
+            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{operation === 'Turn-Mill' ? getTurnMillSampleProgram(selectedSample, controller) : (p.code)}</pre>
           </div>
         ))}
       </div>
