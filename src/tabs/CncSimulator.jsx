@@ -23,63 +23,85 @@ function rectPoints(halfW, halfH) {
   ];
 }
 
-function parseToolpath(code, domainKey, workSide, operation, templateName = '') {
+function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
   const tName = (templateName + ' ' + workSide).toUpperCase();
+  const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
+  const wallAllow = Number(mfgCfg.wallAllowance ?? 0.3);
+  const btmAllow = Number(mfgCfg.bottomAllowance ?? 0.2);
+  const depth = Number(mfgCfg.featureDepth ?? 10);
+  const chamfSize = Number(mfgCfg.chamferSize ?? 0.5);
 
   if (domainKey === 'Turning') {
+    const rawOD = Number(mfgCfg.stockX || 50);
+    const finOD = Number(mfgCfg.stockY || 32);
+    const partLen = Number(mfgCfg.stockZ || 50);
     const isID = workSide === 'ID';
     const isThread = operation === 'Threading';
     const isGroove = operation === 'Grooving & Parting';
     const isDrill = operation === 'Drilling & Tapping';
 
     if (isDrill) {
-      moves.push({ x: 0, z: 3, rapid: true, label: 'G00 X0.0 Z3.0' });
-      for (let d = -10; d >= -45; d -= 10) {
-        moves.push({ x: 0, z: d, rapid: false, label: `G01 Z${d}.0` });
-        moves.push({ x: 0, z: 3, rapid: true, label: 'G00 Z3.0 (PECK RETRACT)' });
+      moves.push({ x: 0, z: 3, rapid: true, passType: 'rapid', label: 'G00 X0.0 Z3.0' });
+      for (let d = -10; d >= -Math.min(45, partLen); d -= 10) {
+        moves.push({ x: 0, z: d, rapid: false, passType: 'rough', label: `PECK DRILL Z${d}.0` });
+        moves.push({ x: 0, z: 3, rapid: true, passType: 'rapid', label: 'G00 Z3.0 RETRACT' });
       }
-      moves.push({ x: 0, z: -45, rapid: false, label: 'G01 Z-45.0' });
-      moves.push({ x: 0, z: 15, rapid: true, label: 'G00 Z15.0' });
+      moves.push({ x: 0, z: 15, rapid: true, passType: 'rapid', label: 'G00 HOME' });
     } else if (isGroove) {
-      const gx = isID ? 36 : 30;
-      const startX = isID ? 26 : 44;
-      moves.push({ x: startX, z: -20, rapid: true, label: `G00 X${startX}.0 Z-20.0` });
-      moves.push({ x: gx, z: -20, rapid: false, label: `G01 X${gx}.0` });
-      moves.push({ x: startX, z: -20, rapid: true, label: `G00 X${startX}.0` });
-      moves.push({ x: startX, z: -25, rapid: true, label: `G00 Z-25.0` });
-      moves.push({ x: gx, z: -25, rapid: false, label: `G01 X${gx}.0` });
-      moves.push({ x: startX, z: 10, rapid: true, label: 'G00 RETRACT' });
+      const gx = isID ? finOD + 6 : Math.max(12, finOD - 6);
+      const startX = isID ? finOD - 4 : rawOD + 2;
+      moves.push({ x: startX, z: -20, rapid: true, passType: 'rapid', label: `G00 X${startX} Z-20` });
+      moves.push({ x: gx, z: -20, rapid: false, passType: 'rough', label: `GROOVE CUT X${gx}` });
+      moves.push({ x: startX, z: -20, rapid: true, passType: 'rapid', label: `G00 X${startX}` });
+      moves.push({ x: startX, z: 12, rapid: true, passType: 'rapid', label: 'G00 HOME' });
     } else if (isThread) {
-      const passes = isID ? [27.2, 28.4, 29.3, 30.0] : [23.2, 22.0, 21.0, 20.3];
-      const safeX = isID ? 25 : 27;
+      const passes = isID ? [finOD - 2.4, finOD - 1.2, finOD - 0.5, finOD] : [finOD + 2.4, finOD + 1.2, finOD + 0.5, finOD];
+      const safeX = isID ? finOD - 5 : rawOD + 3;
       passes.forEach((px, idx) => {
-        moves.push({ x: safeX, z: 4, rapid: true, label: `PASS ${idx + 1}: G00 X${safeX}` });
-        moves.push({ x: px, z: 4, rapid: true, label: `G00 X${px}` });
-        moves.push({ x: px, z: -32, rapid: false, label: `G76 THREAD X${px} Z-32.0` });
-        moves.push({ x: safeX, z: -32, rapid: true, label: `G00 X${safeX}` });
+        moves.push({ x: safeX, z: 4, rapid: true, passType: 'rapid', label: `THREAD PASS ${idx + 1}` });
+        moves.push({ x: px, z: 4, rapid: true, passType: 'rapid', label: `G00 X${px.toFixed(1)}` });
+        moves.push({ x: px, z: -Math.min(35, partLen - 5), rapid: false, passType: 'finish', label: `G76 X${px.toFixed(1)}` });
+        moves.push({ x: safeX, z: -Math.min(35, partLen - 5), rapid: true, passType: 'rapid', label: `G00 X${safeX}` });
       });
-      moves.push({ x: safeX, z: 12, rapid: true, label: 'G00 HOME' });
+      moves.push({ x: safeX, z: 12, rapid: true, passType: 'rapid', label: 'G00 HOME' });
     } else if (isID) {
-      const passes = [28, 32, 36, 40];
-      passes.forEach((px, idx) => {
-        const zEnd = px > 32 ? -25 : -45;
-        moves.push({ x: 24, z: 2, rapid: true, label: `PASS ${idx + 1}: G00 X24 Z2` });
-        moves.push({ x: px, z: 2, rapid: true, label: `G00 X${px}.0` });
-        moves.push({ x: px, z: zEnd, rapid: false, label: `G01 X${px}.0 Z${zEnd}.0` });
-        moves.push({ x: 24, z: zEnd, rapid: true, label: 'G00 X24.0' });
-      });
-      moves.push({ x: 24, z: 15, rapid: true, label: 'G00 Z15.0' });
+      const startBore = Math.max(16, finOD - 12);
+      if (stage.includes('Rough')) {
+        for (let px = startBore + 3; px <= finOD - wallAllow * 2; px += 3) {
+          moves.push({ x: startBore - 2, z: 2, rapid: true, passType: 'rapid', label: `ID ROUGH X${px.toFixed(1)}` });
+          moves.push({ x: px, z: 2, rapid: true, passType: 'rapid', label: `G00 X${px.toFixed(1)}` });
+          moves.push({ x: px, z: -partLen + 5, rapid: false, passType: 'rough', label: `G01 X${px.toFixed(1)} Z-${partLen - 5}` });
+          moves.push({ x: startBore - 2, z: -partLen + 5, rapid: true, passType: 'rapid', label: 'G00 RETRACT' });
+        }
+      }
+      if (stage.includes('Finish') || stage.includes('Combined')) {
+        moves.push({ x: finOD, z: 2, rapid: true, passType: 'rapid', label: `ID FINISH X${finOD}` });
+        moves.push({ x: finOD, z: -partLen + 5, rapid: false, passType: 'finish', label: `FINISH BORE X${finOD}` });
+      }
+      if (stage.includes('Chamfer')) {
+        moves.push({ x: finOD + chamfSize * 2, z: 1, rapid: true, passType: 'rapid', label: 'CHAMFER START' });
+        moves.push({ x: finOD, z: -chamfSize, rapid: false, passType: 'chamfer', label: `CHAMFER C${chamfSize}` });
+      }
+      moves.push({ x: startBore - 2, z: 15, rapid: true, passType: 'rapid', label: 'G00 HOME' });
     } else {
-      const passes = [46, 40, 34, 28, 22];
-      passes.forEach((px, idx) => {
-        const zEnd = px < 26 ? -25 : -50;
-        moves.push({ x: 54, z: 2, rapid: true, label: `PASS ${idx + 1}: G00 X54 Z2` });
-        moves.push({ x: px, z: 2, rapid: true, label: `G00 X${px}.0` });
-        moves.push({ x: px, z: zEnd, rapid: false, label: `G01 X${px}.0 Z${zEnd}.0` });
-        moves.push({ x: px + 3, z: zEnd + 1, rapid: true, label: 'G00 RETRACT' });
-      });
-      moves.push({ x: 60, z: 15, rapid: true, label: 'G00 X60 Z15' });
+      if (stage.includes('Rough')) {
+        for (let px = rawOD - 4; px >= finOD + wallAllow * 2; px -= 4) {
+          moves.push({ x: rawOD + 3, z: 2, rapid: true, passType: 'rapid', label: `OD ROUGH X${px.toFixed(1)}` });
+          moves.push({ x: px, z: 2, rapid: true, passType: 'rapid', label: `G00 X${px.toFixed(1)}` });
+          moves.push({ x: px, z: -partLen + 5, rapid: false, passType: 'rough', label: `G01 X${px.toFixed(1)} Z-${partLen - 5}` });
+          moves.push({ x: px + 2, z: -partLen + 6, rapid: true, passType: 'rapid', label: 'G00 RETRACT' });
+        }
+      }
+      if (stage.includes('Finish') || stage.includes('Combined')) {
+        moves.push({ x: finOD, z: 2, rapid: true, passType: 'rapid', label: `OD FINISH X${finOD}` });
+        moves.push({ x: finOD, z: -partLen + 5, rapid: false, passType: 'finish', label: `FINISH OD X${finOD}` });
+      }
+      if (stage.includes('Chamfer')) {
+        moves.push({ x: finOD - chamfSize * 2, z: 1, rapid: true, passType: 'rapid', label: 'CHAMFER APPROACH' });
+        moves.push({ x: finOD, z: -chamfSize, rapid: false, passType: 'chamfer', label: `CHAMFER C${chamfSize}` });
+      }
+      moves.push({ x: rawOD + 6, z: 15, rapid: true, passType: 'rapid', label: 'G00 HOME' });
     }
   } else {
     const isCircPocket = tName.includes('CIRCULAR POCKET');
@@ -87,60 +109,80 @@ function parseToolpath(code, domainKey, workSide, operation, templateName = '') 
     const isCircSpigot = tName.includes('CIRCULAR SPIGOT');
     const isRectSpigot = tName.includes('RECTANGULAR SPIGOT');
 
-    if (isCircPocket) {
-      // Inside-out spiral circular pocket
-      moves.push({ x: 0, y: 0, z: 5, rapid: true, label: 'G00 X0.0 Y0.0 Z5.0 (CENTER)' });
-      moves.push({ x: 0, y: 0, z: -6, rapid: false, label: 'G01 Z-6.0 (HELICAL PLUNGE)' });
-      [11, 22].forEach((rad, ri) => {
-        const pts = circlePoints(rad, 16);
-        moves.push({ x: pts[0].x, y: pts[0].y, z: -6, rapid: false, label: `SPIRAL RING ${ri + 1}: R${rad}` });
-        pts.forEach((p) => {
-          moves.push({ x: p.x, y: p.y, z: -6, rapid: false, label: `G03 X${p.x} Y${p.y} R${rad}` });
-        });
-      });
-      moves.push({ x: 0, y: 0, z: 20, rapid: true, label: 'G00 Z20.0 (POCKET DONE)' });
-    } else if (isRectPocket) {
-      // Inside-out rectangular pocket
-      moves.push({ x: 0, y: 0, z: 5, rapid: true, label: 'G00 X0.0 Y0.0 Z5.0 (CENTER)' });
-      moves.push({ x: 0, y: 0, z: -6, rapid: false, label: 'G01 Z-6.0 (PLUNGE)' });
-      [
-        { w: 14, h: 9 },
-        { w: 28, h: 18 }
-      ].forEach((box, bi) => {
-        const pts = rectPoints(box.w, box.h);
-        moves.push({ x: pts[0].x, y: pts[0].y, z: -6, rapid: false, label: `INNER PASS ${bi + 1}` });
-        pts.forEach((p) => {
-          moves.push({ x: p.x, y: p.y, z: -6, rapid: false, label: `G01 X${p.x} Y${p.y}` });
-        });
-      });
-      moves.push({ x: 0, y: 0, z: 20, rapid: true, label: 'G00 Z20.0 (RECT POCKET DONE)' });
-    } else if (isCircSpigot) {
-      // Outside-in circular spigot (boss remaining in center)
-      moves.push({ x: -34, y: 0, z: 5, rapid: true, label: 'G00 X-34.0 Y0.0 Z5.0 (OUTSIDE)' });
-      moves.push({ x: -34, y: 0, z: -8, rapid: false, label: 'G01 Z-8.0 (OUTSIDE PLUNGE)' });
-      [30, 20].forEach((rad, ri) => {
-        const pts = circlePoints(rad, 16);
-        moves.push({ x: pts[0].x, y: pts[0].y, z: -8, rapid: false, label: `SPIGOT STEP ${ri + 1}: R${rad}` });
-        pts.forEach((p) => {
-          moves.push({ x: p.x, y: p.y, z: -8, rapid: false, label: `G02 X${p.x} Y${p.y} R${rad}` });
-        });
-      });
-      moves.push({ x: -34, y: 0, z: 20, rapid: true, label: 'G00 Z20.0 (CIRC SPIGOT DONE)' });
-    } else if (isRectSpigot) {
-      // Outside-in rectangular spigot (rectangular boss remaining in center)
-      moves.push({ x: -35, y: -24, z: 5, rapid: true, label: 'G00 X-35.0 Y-24.0 Z5.0 (OUTSIDE)' });
-      moves.push({ x: -35, y: -24, z: -8, rapid: false, label: 'G01 Z-8.0 (OUTSIDE PLUNGE)' });
-      [
-        { w: 32, h: 22 },
-        { w: 22, h: 14 }
-      ].forEach((box, bi) => {
-        const pts = rectPoints(box.w, box.h);
-        moves.push({ x: pts[0].x, y: pts[0].y, z: -8, rapid: false, label: `SPIGOT STEP ${bi + 1}` });
-        pts.forEach((p) => {
-          moves.push({ x: p.x, y: p.y, z: -8, rapid: false, label: `G01 X${p.x} Y${p.y}` });
-        });
-      });
-      moves.push({ x: -35, y: -24, z: 20, rapid: true, label: 'G00 Z20.0 (RECT SPIGOT DONE)' });
+    if (isCircPocket || isRectPocket || isCircSpigot || isRectSpigot) {
+      const isPocket = isCircPocket || isRectPocket;
+      const isCirc = isCircPocket || isCircSpigot;
+
+      // 1. ROUGHING PASS (leaves wallAllow & btmAllow)
+      if (stage.includes('Rough')) {
+        const roughZ = -(depth - btmAllow);
+        if (isPocket) {
+          moves.push({ x: 0, y: 0, z: 5, rapid: true, passType: 'rapid', label: 'G00 X0 Y0 Z5 (BLIND CENTER)' });
+          moves.push({ x: 0, y: 0, z: roughZ, rapid: false, passType: 'rough', label: `ROUGH PLUNGE Z${roughZ.toFixed(2)} (LEAVE ${btmAllow} BTM)` });
+          const r1 = 10;
+          const r2 = Math.max(14, 22 - wallAllow * 2);
+          if (isCirc) {
+            [r1, r2].forEach((rad, ri) => {
+              const pts = circlePoints(rad, 16);
+              moves.push({ x: pts[0].x, y: pts[0].y, z: roughZ, rapid: false, passType: 'rough', label: `ROUGH RING ${ri + 1} (LEAVE ${wallAllow} WALL)` });
+              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', label: `ROUGH G03 X${p.x} Y${p.y}` }));
+            });
+          } else {
+            [{ w: 12, h: 8 }, { w: 26 - wallAllow, h: 16 - wallAllow }].forEach((bx, bi) => {
+              const pts = rectPoints(bx.w, bx.h);
+              moves.push({ x: pts[0].x, y: pts[0].y, z: roughZ, rapid: false, passType: 'rough', label: `ROUGH PASS ${bi + 1} (LEAVE ${wallAllow} WALL)` });
+              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', label: `ROUGH G01 X${p.x} Y${p.y}` }));
+            });
+          }
+        } else {
+          // SPIGOT ROUGHING (Outside-in, leaving wallAllow around boss)
+          moves.push({ x: -34, y: 0, z: 5, rapid: true, passType: 'rapid', label: 'G00 OUTSIDE STOCK' });
+          moves.push({ x: -34, y: 0, z: roughZ, rapid: false, passType: 'rough', label: `SPIGOT ROUGH Z${roughZ.toFixed(2)}` });
+          if (isCirc) {
+            [30, 20 + wallAllow * 2].forEach((rad, ri) => {
+              const pts = circlePoints(rad, 16);
+              moves.push({ x: pts[0].x, y: pts[0].y, z: roughZ, rapid: false, passType: 'rough', label: `SPIGOT ROUGH STEP ${ri + 1}` });
+              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', label: `ROUGH G02 X${p.x} Y${p.y}` }));
+            });
+          } else {
+            [{ w: 32, h: 22 }, { w: 22 + wallAllow, h: 14 + wallAllow }].forEach((bx, bi) => {
+              const pts = rectPoints(bx.w, bx.h);
+              moves.push({ x: pts[0].x, y: pts[0].y, z: roughZ, rapid: false, passType: 'rough', label: `SPIGOT ROUGH STEP ${bi + 1}` });
+              pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', label: `ROUGH G01 X${p.x} Y${p.y}` }));
+            });
+          }
+        }
+      }
+
+      // 2. FINISH PASS (Wall Only OR Wall + Bottom)
+      if (stage.includes('Finish') || stage.includes('Combined')) {
+        const finZ = stage === 'Wall Finish Only' ? -(depth - btmAllow) : -depth;
+        if (stage === 'Wall + Bottom Finish' && isPocket) {
+          // Bottom floor wipe pass
+          const btmPts = isCirc ? circlePoints(14, 12) : rectPoints(16, 10);
+          moves.push({ x: 0, y: 0, z: finZ, rapid: false, passType: 'finish', label: `BOTTOM FINISH Z${finZ.toFixed(2)}` });
+          btmPts.forEach((p) => moves.push({ x: p.x, y: p.y, z: finZ, rapid: false, passType: 'finish', label: `FLOOR WIPE X${p.x} Y${p.y}` }));
+        }
+        // Final Wall Profile Pass
+        const wallPts = isCirc
+          ? circlePoints(isPocket ? 22 : 20, 20)
+          : rectPoints(isPocket ? 26 : 22, isPocket ? 16 : 14);
+        moves.push({ x: wallPts[0].x, y: wallPts[0].y, z: finZ, rapid: false, passType: 'finish', label: `WALL FINISH PASS Z${finZ.toFixed(2)}` });
+        wallPts.forEach((p) => moves.push({ x: p.x, y: p.y, z: finZ, rapid: false, passType: 'finish', label: `FINISH WALL X${p.x} Y${p.y}` }));
+      }
+
+      // 3. CHAMFER PASS (Top edge C-chamfer)
+      if (stage === 'Chamfering Pass' || stage === 'Rough + Finish Combined') {
+        const chZ = -chamfSize;
+        const chPts = isCirc
+          ? circlePoints(isPocket ? 22.4 : 19.6, 20)
+          : rectPoints(isPocket ? 26.4 : 21.6, isPocket ? 16.4 : 13.6);
+        moves.push({ x: chPts[0].x, y: chPts[0].y, z: 3, rapid: true, passType: 'rapid', label: 'CHAMFER TOOL RAPID' });
+        moves.push({ x: chPts[0].x, y: chPts[0].y, z: chZ, rapid: false, passType: 'chamfer', label: `CHAMFER C${chamfSize} Z${chZ}` });
+        chPts.forEach((p) => moves.push({ x: p.x, y: p.y, z: chZ, rapid: false, passType: 'chamfer', label: `CHAMFER X${p.x} Y${p.y}` }));
+      }
+
+      moves.push({ x: 0, y: 0, z: 25, rapid: true, passType: 'rapid', label: 'G00 Z25.0 SAFE RETRACT' });
     } else {
       const holes = [
         { x: -25, y: -18 },
@@ -150,24 +192,24 @@ function parseToolpath(code, domainKey, workSide, operation, templateName = '') 
         { x: 0, y: 0 }
       ];
       holes.forEach((h, i) => {
-        moves.push({ x: h.x, y: h.y, z: 5, rapid: true, label: `HOLE ${i + 1}: G00 X${h.x} Y${h.y}` });
-        moves.push({ x: h.x, y: h.y, z: -20, rapid: false, label: `CYCLE Z-20.0 (${operation})` });
-        moves.push({ x: h.x, y: h.y, z: 5, rapid: true, label: 'G00 R-PLANE Z5.0' });
+        moves.push({ x: h.x, y: h.y, z: 5, rapid: true, passType: 'rapid', label: `HOLE ${i + 1}: G00 X${h.x} Y${h.y}` });
+        moves.push({ x: h.x, y: h.y, z: -depth, rapid: false, passType: 'rough', label: `CYCLE Z-${depth}.0 (${operation})` });
+        moves.push({ x: h.x, y: h.y, z: 5, rapid: true, passType: 'rapid', label: 'G00 R-PLANE Z5.0' });
       });
     }
   }
 
-  return moves.length > 0 ? moves : [{ x: 0, y: 0, z: 10, rapid: true, label: 'READY' }];
+  return moves.length > 0 ? moves : [{ x: 0, y: 0, z: 10, rapid: true, passType: 'rapid', label: 'READY' }];
 }
 
-export default function CncSimulator({ code, domainKey, workSide, operation, templateName = '' }) {
+export default function CncSimulator({ domainKey, workSide, operation, templateName = '', mfgCfg = {} }) {
   const [playing, setPlaying] = useState(true);
   const [stepIdx, setStepIdx] = useState(0);
   const [speed, setSpeed] = useState(1);
 
   const moves = useMemo(
-    () => parseToolpath(code, domainKey, workSide, operation, templateName),
-    [code, domainKey, workSide, operation, templateName]
+    () => parseToolpath(domainKey, workSide, operation, templateName, mfgCfg),
+    [domainKey, workSide, operation, templateName, mfgCfg]
   );
 
   useEffect(() => {
@@ -179,7 +221,7 @@ export default function CncSimulator({ code, domainKey, workSide, operation, tem
     if (!playing || moves.length === 0) return;
     const timer = setInterval(() => {
       setStepIdx((prev) => (prev + 1 >= moves.length ? 0 : prev + 1));
-    }, Math.max(120, 480 / speed));
+    }, Math.max(110, 440 / speed));
     return () => clearInterval(timer);
   }, [playing, moves, speed]);
 
@@ -187,9 +229,12 @@ export default function CncSimulator({ code, domainKey, workSide, operation, tem
   const history = moves.slice(0, stepIdx + 1);
   const tName = (templateName + ' ' + workSide).toUpperCase();
 
+  const cutterDia = Number(mfgCfg.toolDia || 12);
+  const toolRadiusPx = Math.max(6, Math.min(18, cutterDia * 0.75));
+
   const mapTurn = (pt) => {
-    const svgX = 270 + (pt.z || 0) * 3.3;
-    const svgY = 165 - (pt.x || 0) * 1.9;
+    const svgX = 270 + (pt.z || 0) * 3.1;
+    const svgY = 165 - (pt.x || 0) * 1.8;
     return { x: Math.max(78, Math.min(345, svgX)), y: Math.max(25, Math.min(165, svgY)) };
   };
 
@@ -201,8 +246,15 @@ export default function CncSimulator({ code, domainKey, workSide, operation, tem
 
   const toolPos = domainKey === 'Turning' ? mapTurn(current) : mapMill(current);
 
+  const getStroke = (m) => {
+    if (m.rapid || m.passType === 'rapid') return '#f43f5e';
+    if (m.passType === 'finish') return '#38bdf8';
+    if (m.passType === 'chamfer') return '#f59e0b';
+    return '#10b981';
+  };
+
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-full min-h-[560px]">
+    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-full min-h-[580px]">
       <div className="flex items-center justify-between border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Eye className="w-4 h-4" />
@@ -235,8 +287,21 @@ export default function CncSimulator({ code, domainKey, workSide, operation, tem
         </div>
       </div>
 
+      {/* Tool & Stock Spec Badge Strip */}
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono text-slate-300">
+        <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+          Stock: {mfgCfg.stockX || 100}×{mfgCfg.stockY || 80}×{mfgCfg.stockZ || 30}mm
+        </span>
+        <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-amber-300">
+          Tool: Ø{mfgCfg.toolDia || 12}mm • {mfgCfg.toolFlutes || 4}FL • L{mfgCfg.toolLength || 35}mm
+        </span>
+        <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-cyan-300">
+          Allow: W{mfgCfg.wallAllowance ?? 0.3} / B{mfgCfg.bottomAllowance ?? 0.2}
+        </span>
+      </div>
+
       <div className="my-2 bg-[#060b16] border border-slate-800/90 rounded-xl overflow-hidden flex items-center justify-center relative">
-        <svg viewBox="0 0 360 290" className="w-full h-[340px]">
+        <svg viewBox="0 0 360 290" className="w-full h-[330px]">
           <defs>
             <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
               <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#1e293b" strokeWidth="0.6" />
@@ -275,7 +340,7 @@ export default function CncSimulator({ code, domainKey, workSide, operation, tem
                     y1={p1.y}
                     x2={p2.x}
                     y2={p2.y}
-                    stroke={m.rapid ? '#f43f5e' : '#10b981'}
+                    stroke={getStroke(m)}
                     strokeWidth={m.rapid ? '1.2' : '2.4'}
                     strokeDasharray={m.rapid ? '4,3' : '0'}
                   />
@@ -292,7 +357,6 @@ export default function CncSimulator({ code, domainKey, workSide, operation, tem
             <>
               <rect x="65" y="55" width="230" height="190" rx="6" fill="url(#billetGrad)" fillOpacity="0.28" stroke="#94a3b8" strokeWidth="1.5" />
 
-              {/* Target Feature Outline (Pocket vs Spigot) */}
               {tName.includes('CIRCULAR POCKET') && (
                 <circle cx="180" cy="150" r="62" fill="#060b16" fillOpacity="0.55" stroke="#38bdf8" strokeDasharray="4,3" strokeWidth="1.2" />
               )}
@@ -300,10 +364,10 @@ export default function CncSimulator({ code, domainKey, workSide, operation, tem
                 <rect x="102" y="100" width="156" height="100" rx="4" fill="#060b16" fillOpacity="0.55" stroke="#38bdf8" strokeDasharray="4,3" strokeWidth="1.2" />
               )}
               {tName.includes('CIRCULAR SPIGOT') && (
-                <circle cx="180" cy="150" r="46" fill="#38bdf8" fillOpacity="0.18" stroke="#38bdf8" strokeWidth="1.6" />
+                <circle cx="180" cy="150" r="52" fill="#38bdf8" fillOpacity="0.18" stroke="#38bdf8" strokeWidth="1.6" />
               )}
               {tName.includes('RECTANGULAR SPIGOT') && (
-                <rect x="124" y="114" width="112" height="72" rx="4" fill="#38bdf8" fillOpacity="0.18" stroke="#38bdf8" strokeWidth="1.6" />
+                <rect x="118" y="110" width="124" height="80" rx="4" fill="#38bdf8" fillOpacity="0.18" stroke="#38bdf8" strokeWidth="1.6" />
               )}
 
               <line x1="180" y1="40" x2="180" y2="260" stroke="#475569" strokeDasharray="4,4" />
@@ -321,7 +385,7 @@ export default function CncSimulator({ code, domainKey, workSide, operation, tem
                       y1={p1.y}
                       x2={p2.x}
                       y2={p2.y}
-                      stroke={m.rapid ? '#f43f5e' : '#10b981'}
+                      stroke={getStroke(m)}
                       strokeWidth={m.rapid ? '1.2' : '2.8'}
                       strokeDasharray={m.rapid ? '4,3' : '0'}
                     />
@@ -332,25 +396,29 @@ export default function CncSimulator({ code, domainKey, workSide, operation, tem
                 );
               })}
 
+              {/* Dynamic Diameter Cutter */}
               <g transform={`translate(${toolPos.x}, ${toolPos.y})`}>
-                <circle cx="0" cy="0" r="11" fill="#f59e0b" fillOpacity="0.25" stroke="#f59e0b" strokeWidth="1.8" />
-                <line x1="-8" y1="-8" x2="8" y2="8" stroke="#fef08a" strokeWidth="1.5" />
-                <line x1="8" y1="-8" x2="-8" y2="8" stroke="#fef08a" strokeWidth="1.5" />
-                <circle cx="0" cy="0" r="3" fill="#10b981" />
+                <circle cx="0" cy="0" r={toolRadiusPx} fill="#f59e0b" fillOpacity="0.25" stroke="#f59e0b" strokeWidth="1.8" />
+                <line x1={-toolRadiusPx * 0.7} y1={-toolRadiusPx * 0.7} x2={toolRadiusPx * 0.7} y2={toolRadiusPx * 0.7} stroke="#fef08a" strokeWidth="1.4" />
+                <line x1={toolRadiusPx * 0.7} y1={-toolRadiusPx * 0.7} x2={-toolRadiusPx * 0.7} y2={toolRadiusPx * 0.7} stroke="#fef08a" strokeWidth="1.4" />
+                <circle cx="0" cy="0" r="2.5" fill="#10b981" />
               </g>
             </>
           )}
         </svg>
 
-        <div className="absolute bottom-2 left-2.5 flex items-center gap-3 text-[10px] font-mono bg-slate-950/85 px-2.5 py-1 rounded-md border border-slate-800">
+        <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-2.5 text-[10px] font-mono bg-slate-950/90 px-2.5 py-1 rounded-md border border-slate-800">
           <span className="flex items-center gap-1 text-rose-400">
-            <span className="w-3 h-0.5 bg-rose-400 inline-block"></span> Rapid (G00)
+            <span className="w-2.5 h-0.5 bg-rose-400 inline-block"></span> Rapid
           </span>
           <span className="flex items-center gap-1 text-emerald-400">
-            <span className="w-3 h-0.5 bg-emerald-400 inline-block"></span> Feed Cut (G01)
+            <span className="w-2.5 h-0.5 bg-emerald-400 inline-block"></span> Rough
+          </span>
+          <span className="flex items-center gap-1 text-sky-400">
+            <span className="w-2.5 h-0.5 bg-sky-400 inline-block"></span> Finish
           </span>
           <span className="flex items-center gap-1 text-amber-400">
-            <span className="w-2 h-2 rounded-full bg-amber-400 inline-block"></span> Tool
+            <span className="w-2.5 h-0.5 bg-amber-400 inline-block"></span> Chamfer
           </span>
         </div>
       </div>
