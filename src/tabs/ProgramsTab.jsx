@@ -519,6 +519,16 @@ const formatTurnMillByController = (rawCode, ctrlName) => {
   return codeStr;
 };
 
+const TURN_MILL_LIVE_TOOLS = [
+  "T0202 - Radial Endmill Live Tool (OD Pocket / Slot)",
+  "T0303 - Radial Drill Live Tool (OD PCD Drilling)",
+  "T0404 - Radial Tap Live Tool (OD Live Tapping)",
+  "T0303 - Face Drill Live Tool (VTL Face PCD Drilling)",
+  "T0404 - Face Tap Live Tool (VTL Face Tapping)",
+  "T0202 - Face Slot Endmill Live Tool (VTL C + X)",
+  "T0505 - Angular / Cross Live Tool (VTL OD / Side)"
+];
+
 const TURN_MILL_SAMPLES = [
   {
     "name": "OD Pocket Milling (C + X Radial Live Tool)",
@@ -1355,7 +1365,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
                       onChange={(e) => setInsertType(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                     >
-                      {TURNING_INSERTS.map((ins) => (
+                      {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_LIVE_TOOLS : TURNING_INSERTS).map((ins) => (
                         <option key={ins} value={ins}>{ins}</option>
                       ))}
                     </select>
