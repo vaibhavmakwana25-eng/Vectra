@@ -931,56 +931,199 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       toolObj.position.copy(tip);
       group.add(toolObj);
     } else {
+      // SolidWorks CAM Level 3D Milling Simulation (True Recessed Pocket Cavity, Spigot Island, Base Plate & Helical Fluted End-Mill)
       spindleGroupRef.current = null;
-      const rawStockMat = new THREE.MeshStandardMaterial({
-        color: 0x94a3b8,
-        metalness: 0.72,
-        roughness: 0.28,
-        clippingPlanes: planes,
-        side: THREE.DoubleSide
-      });
-      const machinedMat = new THREE.MeshStandardMaterial({
-        color: 0x0284c7,
-        emissive: 0x0369a1,
-        emissiveIntensity: 0.18,
-        metalness: 0.55,
-        roughness: 0.2,
-        clippingPlanes: planes,
-        side: THREE.DoubleSide
-      });
-
       const blkW = Math.min(96, Number(mfgCfg.stockX || 100) * 0.85);
       const blkD = Math.min(76, Number(mfgCfg.stockY || 80) * 0.85);
-      const blkH = Math.min(34, Math.max(16, Number(mfgCfg.stockZ || 30) * 0.85));
-      const cutD = Math.min(blkH - 3, (current.cutDepth || 0) * 0.95);
+      const blkH = Math.min(34, Math.max(18, Number(mfgCfg.stockZ || 30) * 0.88));
+      const maxFeatD = Math.min(blkH - 4, Math.max(4, Number(mfgCfg.featureDepth || 10) * 0.95));
+      const cutD = Math.min(maxFeatD, (current.cutDepth || 0) * 0.95);
+      const isFinPass = current.passType === 'finish' || current.passType === 'chamfer';
 
-      const stockMesh = new THREE.Mesh(new THREE.BoxGeometry(blkW, blkH, blkD), rawStockMat);
-      stockMesh.position.y = -blkH / 2;
-      group.add(stockMesh);
+      // SolidWorks CAM Palette: Copper/Bronze Top Skin, Dark Steel Walls, Emerald/Olive Machined Floor, Brown Fixture Base
+      const baseFixtureMat = new THREE.MeshStandardMaterial({
+        color: 0x9a3412,
+        metalness: 0.45,
+        roughness: 0.45,
+        clippingPlanes: planes
+      });
+      const stockWallMat = new THREE.MeshStandardMaterial({
+        color: 0x475569,
+        metalness: 0.65,
+        roughness: 0.3,
+        clippingPlanes: planes,
+        side: THREE.DoubleSide
+      });
+      const topCopperMat = new THREE.MeshStandardMaterial({
+        color: 0xb45309,
+        metalness: 0.55,
+        roughness: 0.32,
+        clippingPlanes: planes
+      });
+      const cavityFloorMat = new THREE.MeshStandardMaterial({
+        color: isFinPass ? 0x10b981 : 0x65a30d,
+        emissive: isFinPass ? 0x047857 : 0x3f6212,
+        emissiveIntensity: 0.2,
+        metalness: 0.5,
+        roughness: 0.22,
+        clippingPlanes: planes,
+        side: THREE.DoubleSide
+      });
+      const cavityWallMat = new THREE.MeshStandardMaterial({
+        color: isFinPass ? 0x059669 : 0x0284c7,
+        metalness: 0.55,
+        roughness: 0.22,
+        clippingPlanes: planes,
+        side: THREE.DoubleSide
+      });
 
-      if (cutD > 0.5) {
-        if (tName.includes('CIRCULAR POCKET') || operation === 'Pocket Milling') {
-          const rad = current.cutRad || 22;
-          const cavMesh = new THREE.Mesh(new THREE.CylinderGeometry(rad, rad, cutD + 0.4, 40), machinedMat);
-          cavMesh.position.y = -cutD / 2 + 0.1;
-          group.add(cavMesh);
-        } else if (tName.includes('RECTANGULAR POCKET')) {
-          const w = (current.cutW || 26) * 2;
-          const d = (current.cutH || 16) * 2;
-          const cavMesh = new THREE.Mesh(new THREE.BoxGeometry(w, cutD + 0.4, d), machinedMat);
-          cavMesh.position.y = -cutD / 2 + 0.1;
-          group.add(cavMesh);
-        } else if (tName.includes('CIRCULAR SPIGOT') || operation === 'Spigot Milling') {
-          const bossMesh = new THREE.Mesh(new THREE.CylinderGeometry(20, 20, cutD + 0.5, 40), machinedMat);
-          bossMesh.position.y = cutD / 2;
-          group.add(bossMesh);
-        } else if (tName.includes('RECTANGULAR SPIGOT')) {
-          const bossMesh = new THREE.Mesh(new THREE.BoxGeometry(44, cutD + 0.5, 28), machinedMat);
-          bossMesh.position.y = cutD / 2;
-          group.add(bossMesh);
+      // 1. Fixture Base Plate under Stock (SolidWorks CAM style)
+      const basePlate = new THREE.Mesh(new THREE.BoxGeometry(blkW + 8, 4, blkD + 8), baseFixtureMat);
+      basePlate.position.y = -blkH - 2;
+      group.add(basePlate);
+
+      const isPocketOp = tName.includes('POCKET') || operation === 'Pocket Milling';
+      const isSpigotOp = tName.includes('SPIGOT') || operation === 'Spigot Milling';
+      const isCircShape = !tName.includes('RECTANGULAR');
+
+      if (isPocketOp && cutD > 0.3) {
+        // TRUE 3D RECESSED POCKET CAVITY (ExtrudeGeometry with Hole so you see deep vertical walls & machined floor!)
+        const outerShape = new THREE.Shape();
+        outerShape.moveTo(-blkW / 2, -blkD / 2);
+        outerShape.lineTo(blkW / 2, -blkD / 2);
+        outerShape.lineTo(blkW / 2, blkD / 2);
+        outerShape.lineTo(-blkW / 2, blkD / 2);
+        outerShape.closePath();
+
+        const holePath = new THREE.Path();
+        if (isCircShape) {
+          const r = current.cutRad || 22;
+          holePath.absarc(0, 0, r, 0, Math.PI * 2, true);
+        } else {
+          const hw = current.cutW || 26;
+          const hh = current.cutH || 16;
+          holePath.moveTo(-hw, -hh);
+          holePath.lineTo(-hw, hh);
+          holePath.lineTo(hw, hh);
+          holePath.lineTo(hw, -hh);
+          holePath.closePath();
         }
+        outerShape.holes.push(holePath);
+
+        // Upper hollowed wall ring of depth `cutD`
+        const upperWallGeo = new THREE.ExtrudeGeometry(outerShape, {
+          depth: cutD,
+          bevelEnabled: false,
+          curveSegments: 40
+        });
+        upperWallGeo.rotateX(Math.PI / 2);
+        const upperWallMesh = new THREE.Mesh(upperWallGeo, stockWallMat);
+        upperWallMesh.position.y = 0;
+        group.add(upperWallMesh);
+
+        // Top Copper Skin Ring around Pocket opening
+        const topSkinGeo = new THREE.ShapeGeometry(outerShape, 40);
+        topSkinGeo.rotateX(-Math.PI / 2);
+        const topSkinMesh = new THREE.Mesh(topSkinGeo, topCopperMat);
+        topSkinMesh.position.y = 0.05;
+        group.add(topSkinMesh);
+
+        // Lower solid block below Pocket floor (`blkH - cutD`)
+        const lowerH = Math.max(2, blkH - cutD);
+        const lowerBlock = new THREE.Mesh(new THREE.BoxGeometry(blkW, lowerH, blkD), stockWallMat);
+        lowerBlock.position.y = -cutD - lowerH / 2;
+        group.add(lowerBlock);
+
+        // Highlighted Machined Pocket Floor at `y = -cutD + 0.08`
+        if (isCircShape) {
+          const r = current.cutRad || 22;
+          const floorDisk = new THREE.Mesh(new THREE.CircleGeometry(r, 40), cavityFloorMat);
+          floorDisk.rotation.x = -Math.PI / 2;
+          floorDisk.position.y = -cutD + 0.08;
+          group.add(floorDisk);
+
+          const innerCylWall = new THREE.Mesh(new THREE.CylinderGeometry(r, r, cutD, 40, 1, true), cavityWallMat);
+          innerCylWall.position.y = -cutD / 2;
+          group.add(innerCylWall);
+        } else {
+          const hw = current.cutW || 26;
+          const hh = current.cutH || 16;
+          const floorRect = new THREE.Mesh(new THREE.PlaneGeometry(hw * 2, hh * 2), cavityFloorMat);
+          floorRect.rotation.x = -Math.PI / 2;
+          floorRect.position.y = -cutD + 0.08;
+          group.add(floorRect);
+        }
+      } else if (isSpigotOp && cutD > 0.3) {
+        // TRUE 3D RAISED SPIGOT ISLAND (Outer material removed down to `-cutD`, central boss stands proud!)
+        const lowerH = Math.max(2, blkH - cutD);
+        const lowerBlock = new THREE.Mesh(new THREE.BoxGeometry(blkW, lowerH, blkD), stockWallMat);
+        lowerBlock.position.y = -cutD - lowerH / 2;
+        group.add(lowerBlock);
+
+        // Machined Step Floor at `y = -cutD + 0.06`
+        const stepFloor = new THREE.Mesh(new THREE.PlaneGeometry(blkW, blkD), cavityFloorMat);
+        stepFloor.rotation.x = -Math.PI / 2;
+        stepFloor.position.y = -cutD + 0.06;
+        group.add(stepFloor);
+
+        // Central Raised Spigot Boss standing up from `-cutD` to `0`
+        if (isCircShape) {
+          const bossRad = current.cutRad || 20;
+          const bossMesh = new THREE.Mesh(new THREE.CylinderGeometry(bossRad, bossRad, cutD, 40), cavityWallMat);
+          bossMesh.position.y = -cutD / 2;
+          group.add(bossMesh);
+
+          const bossTop = new THREE.Mesh(new THREE.CircleGeometry(bossRad, 40), topCopperMat);
+          bossTop.rotation.x = -Math.PI / 2;
+          bossTop.position.y = 0.05;
+          group.add(bossTop);
+        } else {
+          const bw = (current.cutW || 22) * 2;
+          const bd = (current.cutH || 14) * 2;
+          const bossMesh = new THREE.Mesh(new THREE.BoxGeometry(bw, cutD, bd), cavityWallMat);
+          bossMesh.position.y = -cutD / 2;
+          group.add(bossMesh);
+
+          const bossTop = new THREE.Mesh(new THREE.PlaneGeometry(bw, bd), topCopperMat);
+          bossTop.rotation.x = -Math.PI / 2;
+          bossTop.position.y = 0.05;
+          group.add(bossTop);
+        }
+      } else {
+        // Standard Solid Block + Copper Top Face (Drilling / Tapping / Initial Rapid)
+        const stockMesh = new THREE.Mesh(new THREE.BoxGeometry(blkW, blkH, blkD), stockWallMat);
+        stockMesh.position.y = -blkH / 2;
+        group.add(stockMesh);
+
+        const topSkin = new THREE.Mesh(new THREE.PlaneGeometry(blkW, blkD), topCopperMat);
+        topSkin.rotation.x = -Math.PI / 2;
+        topSkin.position.y = 0.05;
+        group.add(topSkin);
+
+        // Render drilled holes progressively as tool visits each hole coordinate
+        const holeRadius = Math.max(2.2, Number(mfgCfg.drillDia || mfgCfg.tapDia || 10) * 0.35);
+        history.forEach((hMove) => {
+          if (!hMove.rapid && (hMove.z || 0) < -0.5) {
+            const hDepth = Math.min(blkH - 2, Math.abs(hMove.z));
+            const holeRim = new THREE.Mesh(
+              new THREE.CircleGeometry(holeRadius, 24),
+              new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6, clippingPlanes: planes })
+            );
+            holeRim.rotation.x = -Math.PI / 2;
+            holeRim.position.set(hMove.x || 0, 0.08, -(hMove.y || 0));
+            group.add(holeRim);
+
+            const holeCyl = new THREE.Mesh(
+              new THREE.CylinderGeometry(holeRadius, holeRadius, hDepth, 24),
+              cavityWallMat
+            );
+            holeCyl.position.set(hMove.x || 0, -hDepth / 2 + 0.04, -(hMove.y || 0));
+            group.add(holeCyl);
+          }
+        });
       }
 
+      // Toolpath Trajectory Lines
       const mapMillVec = (pt) => new THREE.Vector3(pt.x || 0, pt.z || 0, -(pt.y || 0));
       for (let i = 1; i < history.length; i++) {
         const p1 = mapMillVec(history[i - 1]);
@@ -989,20 +1132,28 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: col })));
       }
 
+      // SolidWorks CAM Style Cylindrical End-Mill Cutter (Blue Fluted Cutting Tip + Silver Steel Shank + BT40 Spindle Taper)
       const tip = mapMillVec(current);
-      const cutterRad = Math.max(3, Number(mfgCfg.toolDia || 12) * 0.45);
-      const fluteLen = Math.max(18, Number(mfgCfg.toolLength || 35) * 0.65);
+      const cutterRad = Math.max(2.6, Number(mfgCfg.toolDia || 12) * 0.42);
+      const fluteLen = Math.max(16, Number(mfgCfg.toolLength || 35) * 0.55);
 
       const cutterGroup = new THREE.Group();
       const fluteMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(cutterRad, cutterRad, fluteLen, 24),
-        new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.75, roughness: 0.2 })
+        new THREE.CylinderGeometry(cutterRad, cutterRad, fluteLen, 28),
+        new THREE.MeshStandardMaterial({ color: 0x0284c7, emissive: 0x0369a1, emissiveIntensity: 0.25, metalness: 0.78, roughness: 0.18 })
       );
       fluteMesh.position.y = fluteLen / 2;
       cutterGroup.add(fluteMesh);
 
-      const holderMesh = new THREE.Mesh(new THREE.CylinderGeometry(cutterRad * 1.7, cutterRad * 1.3, 20, 24), chuckMat);
-      holderMesh.position.y = fluteLen + 10;
+      const shankMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(cutterRad * 1.05, cutterRad * 1.05, 18, 28),
+        new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.88, roughness: 0.2 })
+      );
+      shankMesh.position.y = fluteLen + 9;
+      cutterGroup.add(shankMesh);
+
+      const holderMesh = new THREE.Mesh(new THREE.CylinderGeometry(cutterRad * 2.2, cutterRad * 1.5, 16, 28), chuckMat);
+      holderMesh.position.y = fluteLen + 26;
       cutterGroup.add(holderMesh);
 
       cutterGroup.position.copy(tip);
@@ -1110,3 +1261,4 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     </div>
   );
 }
+
