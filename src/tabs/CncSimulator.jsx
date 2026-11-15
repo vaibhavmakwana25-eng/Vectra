@@ -224,6 +224,9 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       snapshot(18, rawOD + 8, true, 'rapid', `G40 G28 U0. W0. M05`);
     }
   } else {
+    const isFaceMill = tName.includes('FACE') || operation === 'Face Milling';
+    const isContourMill = tName.includes('CONTOUR') || tName.includes('PROFILE') || operation === 'Contour Milling';
+    const isSlotMill = tName.includes('SLOT') || operation === 'Slot Milling';
     const isCircPocket = tName.includes('CIRCULAR POCKET') || operation === 'Pocket Milling';
     const isRectPocket = tName.includes('RECTANGULAR POCKET');
     const isCircSpigot = tName.includes('CIRCULAR SPIGOT') || operation === 'Spigot Milling';
@@ -303,6 +306,46 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       }
 
       moves.push({ x: 0, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: maxDepthSoFar, gcode: 'G40 G00 Z25.0 M05' });
+    } else if (isFaceMill) {
+      // Zig-Zag Face Milling Passes across entire top surface
+      const faceZ = -Math.max(1.5, Math.min(6, depth));
+      const yRows = [-24, -12, 0, 12, 24];
+      moves.push({ x: -52, y: -24, z: 8, rapid: true, passType: 'rapid', cutDepth: 0, faceProg: 0, gcode: 'G43 H01 G00 X-52.0 Y-24.0 Z8.0' });
+      moves.push({ x: -52, y: -24, z: faceZ, rapid: false, passType: 'rough', cutDepth: Math.abs(faceZ), faceProg: 0.05, gcode: `G01 Z${faceZ.toFixed(1)} F350.0` });
+      yRows.forEach((ry, idx) => {
+        const dir = idx % 2 === 0 ? 1 : -1;
+        const xStart = dir === 1 ? -46 : 46;
+        const xEnd = dir === 1 ? 46 : -46;
+        if (idx > 0) {
+          moves.push({ x: xStart, y: ry, z: faceZ, rapid: false, passType: 'rough', cutDepth: Math.abs(faceZ), faceProg: idx / yRows.length, gcode: `G01 Y${ry.toFixed(1)} F450.0` });
+        }
+        for (let s = 1; s <= 4; s++) {
+          const curX = xStart + ((xEnd - xStart) * s) / 4;
+          const prog = (idx + s / 4) / yRows.length;
+          moves.push({ x: curX, y: ry, z: faceZ, rapid: false, passType: prog > 0.8 ? 'finish' : 'rough', cutDepth: Math.abs(faceZ), faceProg: prog, gcode: `G01 X${curX.toFixed(1)} Y${ry.toFixed(1)} F650.0` });
+        }
+      });
+      moves.push({ x: 52, y: 24, z: 25, rapid: true, passType: 'rapid', cutDepth: Math.abs(faceZ), faceProg: 1, gcode: 'G00 Z25.0 M05 (FACE COMPLETE)' });
+    } else if (isContourMill) {
+      // Outer Contour / Profile Milling around block perimeter
+      const cZ = -Math.max(4, depth);
+      const pts = rectPts(36, 26);
+      moves.push({ x: -42, y: -26, z: 8, rapid: true, passType: 'rapid', cutDepth: 0, gcode: 'G43 H01 G00 X-42.0 Y-26.0 Z8.0' });
+      moves.push({ x: -36, y: -26, z: cZ, rapid: false, passType: 'rough', cutDepth: Math.abs(cZ), gcode: `G01 Z${cZ.toFixed(1)} F250.0` });
+      pts.forEach((p, idx) => {
+        moves.push({ x: p.x, y: p.y, z: cZ, rapid: false, passType: idx >= 3 ? 'finish' : 'rough', cutDepth: Math.abs(cZ), cutW: 36, cutH: 26, gcode: `G41 G01 X${p.x} Y${p.y} F400.0` });
+      });
+      moves.push({ x: 0, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: Math.abs(cZ), cutW: 36, cutH: 26, gcode: 'G40 G00 Z25.0 M05' });
+    } else if (isSlotMill) {
+      // Straight Center Slot Milling
+      const sZ = -Math.max(4, depth);
+      moves.push({ x: -30, y: 0, z: 8, rapid: true, passType: 'rapid', cutDepth: 0, gcode: 'G43 H01 G00 X-30.0 Y0.0 Z8.0' });
+      moves.push({ x: -30, y: 0, z: sZ, rapid: false, passType: 'rough', cutDepth: Math.abs(sZ), slotLen: 0, gcode: `G01 Z${sZ.toFixed(1)} F200.0` });
+      for (let s = 1; s <= 10; s++) {
+        const curX = -30 + (60 * s) / 10;
+        moves.push({ x: curX, y: 0, z: sZ, rapid: false, passType: s >= 8 ? 'finish' : 'rough', cutDepth: Math.abs(sZ), slotLen: (60 * s) / 10, gcode: `G01 X${curX.toFixed(1)} Y0.0 F350.0` });
+      }
+      moves.push({ x: 30, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: Math.abs(sZ), slotLen: 60, gcode: 'G00 Z25.0 M05' });
     } else {
       const holes = [
         { x: -24, y: -16 },
@@ -312,9 +355,9 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
         { x: 0, y: 0 }
       ];
       holes.forEach((h, i) => {
-        moves.push({ x: h.x, y: h.y, z: 6, rapid: true, passType: 'rapid', gcode: `HOLE ${i + 1}: G00 X${h.x} Y${h.y}` });
-        moves.push({ x: h.x, y: h.y, z: -depth, rapid: false, passType: 'rough', gcode: `G43 CYCLE Z-${depth}.0` });
-        moves.push({ x: h.x, y: h.y, z: 6, rapid: true, passType: 'rapid', gcode: 'G00 R-PLANE Z6.0' });
+        moves.push({ x: h.x, y: h.y, z: 6, rapid: true, passType: 'rapid', cutDepth: depth, gcode: `HOLE ${i + 1}: G00 X${h.x} Y${h.y}` });
+        moves.push({ x: h.x, y: h.y, z: -depth, rapid: false, passType: 'rough', cutDepth: depth, gcode: `G43 CYCLE Z-${depth}.0` });
+        moves.push({ x: h.x, y: h.y, z: 6, rapid: true, passType: 'rapid', cutDepth: depth, gcode: 'G00 R-PLANE Z6.0' });
       });
     }
   }
@@ -982,9 +1025,12 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       basePlate.position.y = -blkH - 2;
       group.add(basePlate);
 
+      const isFaceOp = tName.includes('FACE') || operation === 'Face Milling';
+      const isContourOp = tName.includes('CONTOUR') || tName.includes('PROFILE') || operation === 'Contour Milling';
+      const isSlotOp = tName.includes('SLOT') || operation === 'Slot Milling';
       const isPocketOp = tName.includes('POCKET') || operation === 'Pocket Milling';
-      const isSpigotOp = tName.includes('SPIGOT') || operation === 'Spigot Milling';
-      const isCircShape = !tName.includes('RECTANGULAR');
+      const isSpigotOp = tName.includes('SPIGOT') || operation === 'Spigot Milling' || isContourOp;
+      const isCircShape = !tName.includes('RECTANGULAR') && !isContourOp;
 
       if (isPocketOp && cutD > 0.3) {
         // TRUE 3D RECESSED POCKET CAVITY (ExtrudeGeometry with Hole so you see deep vertical walls & machined floor!)
@@ -1089,8 +1135,50 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           bossTop.position.y = 0.05;
           group.add(bossTop);
         }
+      } else if (isFaceOp) {
+        // Progressive Face Milling: Top Copper Layer gets skimmed away into Shiny Machined Surface!
+        const remH = Math.max(8, blkH - cutD);
+        const stockMesh = new THREE.Mesh(new THREE.BoxGeometry(blkW, remH, blkD), stockWallMat);
+        stockMesh.position.y = -cutD - remH / 2;
+        group.add(stockMesh);
+
+        const fProg = current.faceProg || 0;
+        // Uncut Copper portion remaining
+        if (fProg < 0.98) {
+          const uncutD = blkD * (1 - fProg);
+          const unCutSkin = new THREE.Mesh(new THREE.PlaneGeometry(blkW, uncutD), topCopperMat);
+          unCutSkin.rotation.x = -Math.PI / 2;
+          unCutSkin.position.set(0, 0.04, -(blkD / 2 - uncutD / 2));
+          group.add(unCutSkin);
+        }
+        // Freshly Face-Milled Machined Surface
+        if (fProg > 0.01) {
+          const cutDepthZ = blkD * fProg;
+          const milledSkin = new THREE.Mesh(new THREE.PlaneGeometry(blkW, cutDepthZ), cavityFloorMat);
+          milledSkin.rotation.x = -Math.PI / 2;
+          milledSkin.position.set(0, -cutD + 0.06, blkD / 2 - cutDepthZ / 2);
+          group.add(milledSkin);
+        }
+      } else if (isSlotOp) {
+        // True 3D Recessed Slot Channel across center of block
+        const stockMesh = new THREE.Mesh(new THREE.BoxGeometry(blkW, blkH, blkD), stockWallMat);
+        stockMesh.position.y = -blkH / 2;
+        group.add(stockMesh);
+
+        const topSkin = new THREE.Mesh(new THREE.PlaneGeometry(blkW, blkD), topCopperMat);
+        topSkin.rotation.x = -Math.PI / 2;
+        topSkin.position.y = 0.04;
+        group.add(topSkin);
+
+        const sLen = current.slotLen || 0;
+        if (sLen > 1 && cutD > 0.3) {
+          const slotW = Math.max(8, Number(mfgCfg.toolDia || 12) * 0.85);
+          const slotFloor = new THREE.Mesh(new THREE.BoxGeometry(sLen, cutD + 0.2, slotW), cavityFloorMat);
+          slotFloor.position.set(-30 + sLen / 2, -cutD / 2 + 0.08, 0);
+          group.add(slotFloor);
+        }
       } else {
-        // Standard Solid Block + Copper Top Face (Drilling / Tapping / Initial Rapid)
+        // Standard Solid Block + Copper Top Face (Drilling / Tapping / Boring)
         const stockMesh = new THREE.Mesh(new THREE.BoxGeometry(blkW, blkH, blkD), stockWallMat);
         stockMesh.position.y = -blkH / 2;
         group.add(stockMesh);
@@ -1134,7 +1222,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
 
       // SolidWorks CAM Style Cylindrical End-Mill Cutter (Blue Fluted Cutting Tip + Silver Steel Shank + BT40 Spindle Taper)
       const tip = mapMillVec(current);
-      const cutterRad = Math.max(2.6, Number(mfgCfg.toolDia || 12) * 0.42);
+      const cutterRad = isFaceOp ? Math.max(7.5, Number(mfgCfg.toolDia || 50) * 0.22) : Math.max(2.6, Number(mfgCfg.toolDia || 12) * 0.42);
       const fluteLen = Math.max(16, Number(mfgCfg.toolLength || 35) * 0.55);
 
       const cutterGroup = new THREE.Group();
@@ -1261,4 +1349,5 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     </div>
   );
 }
+
 
