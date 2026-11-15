@@ -1,8 +1,37 @@
-﻿import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import { db } from '../db';
 import { FileCode, Share2, Copy, Check, Save, Layers } from 'lucide-react';
 import { JYOTI_MACHINE_CASCADE, CONTROLLERS } from './cncConstants';
 import { CYCLE_TEMPLATES } from './cycleTemplatesData';
+
+function classifyTemplate(domainKey, name) {
+  const n = name.toUpperCase();
+  if (domainKey === 'Turning') {
+    let op = 'Turning';
+    if (n.includes('THREAD')) op = 'Threading';
+    else if (n.includes('GROOV') || n.includes('PARTING')) op = 'Grooving & Parting';
+    else if (n.includes('FACING')) op = 'Facing';
+    else if (n.includes('DRILL') || n.includes('TAP') || n.includes('REAM')) op = 'Drilling & Tapping';
+
+    let side = 'OD';
+    if (n.includes(' ID ') || n.startsWith('G71 ID') || n.startsWith('G70 ID') || n.startsWith('G72 ID') || n.startsWith('G75 ID') || n.startsWith('G76 ID') || n.startsWith('G90 SINGLE-PASS ID') || n.startsWith('CYCLE95 ID') || n.startsWith('CYCLE93 ID') || n.startsWith('CYCLE97 ID')) {
+      side = 'ID';
+    } else if (n.includes('FACE') || n.includes('FRONT') || n.includes('DRILL') || n.includes('TAP') || n.includes('REAM') || n.includes('G94')) {
+      side = 'Face';
+    }
+    return { op, side };
+  } else {
+    let op = 'Drilling';
+    if (n.includes('TAP')) op = 'Tapping';
+    else if (n.includes('BOR') || n.includes('REAM')) op = 'Boring & Reaming';
+    else if (n.includes('MILL') || n.includes('POCKET') || n.includes('SPIGOT') || n.includes('SLOT')) op = 'Milling & Pocket';
+
+    let side = 'Standard';
+    if (n.includes('POCKET') || n.includes('SLOT') || n.includes('SPIGOT')) side = 'Pocket & Boss';
+    else if (n.includes('DEEP') || n.includes('PECK') || n.includes('CHIP') || n.includes('FINE') || n.includes('BACK')) side = 'Deep & Precision';
+    return { op, side };
+  }
+}
 
 export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhatsApp }) {
   const categories = Object.keys(JYOTI_MACHINE_CASCADE);
@@ -14,25 +43,60 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   const [machineType, setMachineType] = useState(initialCategory);
   const [machineSeries, setMachineSeries] = useState(initialSeries);
   const [machineModel, setMachineModel] = useState(initialModel);
+  const [operation, setOperation] = useState('Turning');
+  const [workSide, setWorkSide] = useState('OD');
   const [selectedTemplateIdx, setSelectedTemplateIdx] = useState(0);
-  const [title, setTitle] = useState('G71 OD Rough & G70 Finish Cycle');
-  const [code, setCode] = useState(CYCLE_TEMPLATES.Turning.Fanuc[0].code);
+  const [title, setTitle] = useState('');
+  const [code, setCode] = useState('');
   const [copied, setCopied] = useState(false);
 
   const domainKey = machineType === 'Turning' ? 'Turning' : 'Milling';
-  const availableTemplates = useMemo(() => {
+
+  const enrichedTemplates = useMemo(() => {
     const byDomain = CYCLE_TEMPLATES[domainKey] || CYCLE_TEMPLATES.Turning;
-    return byDomain[controller] || byDomain.Fanuc;
+    const rawList = byDomain[controller] || byDomain.Fanuc || [];
+    return rawList.map((item) => ({
+      ...item,
+      ...classifyTemplate(domainKey, item.name)
+    }));
   }, [domainKey, controller]);
 
-  const handleControllerChange = (val) => {
-    setController(val);
-    const byDomain = CYCLE_TEMPLATES[domainKey] || CYCLE_TEMPLATES.Turning;
-    const list = byDomain[val] || byDomain.Fanuc;
+  const operationOptions = useMemo(() => {
+    return [...new Set(enrichedTemplates.map((t) => t.op))];
+  }, [enrichedTemplates]);
+
+  useEffect(() => {
+    if (!operationOptions.includes(operation) && operationOptions.length > 0) {
+      setOperation(operationOptions[0]);
+    }
+  }, [operationOptions, operation]);
+
+  const sideOptions = useMemo(() => {
+    const filteredByOp = enrichedTemplates.filter((t) => t.op === operation);
+    const sides = [...new Set(filteredByOp.map((t) => t.side))];
+    return sides.length > 0 ? sides : ['OD'];
+  }, [enrichedTemplates, operation]);
+
+  useEffect(() => {
+    if (!sideOptions.includes(workSide) && sideOptions.length > 0) {
+      setWorkSide(sideOptions[0]);
+    }
+  }, [sideOptions, workSide]);
+
+  const filteredTemplates = useMemo(() => {
+    const exact = enrichedTemplates.filter((t) => t.op === operation && t.side === workSide);
+    if (exact.length > 0) return exact;
+    const byOp = enrichedTemplates.filter((t) => t.op === operation);
+    return byOp.length > 0 ? byOp : enrichedTemplates;
+  }, [enrichedTemplates, operation, workSide]);
+
+  useEffect(() => {
     setSelectedTemplateIdx(0);
-    setTitle(list[0].name);
-    setCode(list[0].code);
-  };
+    if (filteredTemplates[0]) {
+      setTitle(filteredTemplates[0].name);
+      setCode(filteredTemplates[0].code);
+    }
+  }, [filteredTemplates]);
 
   const handleCategoryChange = (cat) => {
     setMachineType(cat);
@@ -40,12 +104,6 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     const firstModel = JYOTI_MACHINE_CASCADE[cat][firstSeries][0];
     setMachineSeries(firstSeries);
     setMachineModel(firstModel);
-
-    const newDomain = cat === 'Turning' ? 'Turning' : 'Milling';
-    const list = CYCLE_TEMPLATES[newDomain][controller] || CYCLE_TEMPLATES[newDomain].Fanuc;
-    setSelectedTemplateIdx(0);
-    setTitle(list[0].name);
-    setCode(list[0].code);
   };
 
   const handleSeriesChange = (ser) => {
@@ -56,9 +114,9 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   const handleTemplateChange = (idx) => {
     const i = Number(idx);
     setSelectedTemplateIdx(i);
-    if (availableTemplates[i]) {
-      setTitle(availableTemplates[i].name);
-      setCode(availableTemplates[i].code);
+    if (filteredTemplates[i]) {
+      setTitle(filteredTemplates[i].name);
+      setCode(filteredTemplates[i].code);
     }
   };
 
@@ -75,7 +133,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       title,
       machineType: `${machineType} (${machineModel})`,
       controller,
-      operation: availableTemplates[selectedTemplateIdx]?.name || 'Custom',
+      operation: `${operation} (${workSide})`,
       code,
       notes: '',
       createdAt: new Date().toISOString().split('T')[0],
@@ -86,7 +144,8 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
 
   return (
     <div className="space-y-4 pb-24">
-      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-4 shadow-lg">
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3.5 shadow-lg">
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
           <div className="flex items-center gap-2 text-cyan-400 font-bold text-base">
             <FileCode className="w-5 h-5" />
@@ -97,13 +156,13 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
           </span>
         </div>
 
-        {/* Cascading Controller & Jyoti Machine Selection */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        {/* LINE 1: Controller | Machine Category | Machine Series */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="block text-[11px] font-semibold text-slate-400 mb-1">Controller</label>
             <select
               value={controller}
-              onChange={(e) => handleControllerChange(e.target.value)}
+              onChange={(e) => setController(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
             >
               {CONTROLLERS.map((ctrl) => (
@@ -137,7 +196,10 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               ))}
             </select>
           </div>
+        </div>
 
+        {/* LINE 2: Machine Model | Operation | OD / ID Selection */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="block text-[11px] font-semibold text-slate-400 mb-1">Machine Model</label>
             <select
@@ -150,23 +212,51 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               ))}
             </select>
           </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-400 mb-1">Operation</label>
+            <select
+              value={operation}
+              onChange={(e) => setOperation(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
+            >
+              {operationOptions.map((op) => (
+                <option key={op} value={op}>{op}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+              {domainKey === 'Turning' ? 'Machining Side (OD / ID)' : 'Cycle Type'}
+            </label>
+            <select
+              value={workSide}
+              onChange={(e) => setWorkSide(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
+            >
+              {sideOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {/* Quick Cycle Template Cascade */}
+        {/* LINE 3: Quick Cycle Template (Filtered by above cascades) */}
         <div className="bg-slate-950/80 border border-cyan-500/30 rounded-xl p-3 space-y-2.5">
           <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-300">
             <Layers className="w-4 h-4" />
-            <span>Quick Cycle Template ({controller} - {domainKey})</span>
+            <span>Quick Cycle Template ({controller} • {operation} • {workSide})</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1">Select Operation Sample</label>
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1">Select Cycle Sample</label>
               <select
                 value={selectedTemplateIdx}
                 onChange={(e) => handleTemplateChange(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
               >
-                {availableTemplates.map((tpl, idx) => (
+                {filteredTemplates.map((tpl, idx) => (
                   <option key={tpl.name} value={idx}>{tpl.name}</option>
                 ))}
               </select>
@@ -259,4 +349,3 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
-
