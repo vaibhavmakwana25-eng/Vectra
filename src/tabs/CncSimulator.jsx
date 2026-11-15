@@ -252,119 +252,99 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
 
-// Builds distinct, non-colliding Tool Holder + Insert shapes per operation (Images 2-6):
-// - OD Turning/Facing: Square Shank + 80-deg Diamond Insert + Clamp Pin
-// - ID Boring: Round Cylindrical Boring Bar + Positive Insert
-// - Threading: Angled Laydown Threading Holder + 60-deg Sharp V Insert
-// - Grooving/Parting: Thin Slotted Blade + Narrow Tip Insert
+// Exact Orientation Rules for Both VTL and Standard Turning:
+// - OD Operations: Insert tip faces INWARD toward Job (-X in local tip coords), Turret/Holder sits OUTWARD (+X)
+// - ID Operations: Insert tip faces OUTWARD toward Bore Wall / Turret side (+X in local tip coords), Bar inside bore
 function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, holderMat, insertMat) {
   const assembly = new THREE.Group();
 
-  // 1. Turret Body positioned safely clear of workpiece (never enters job!)
+  // 1. Turret Body safely clear of workpiece
   const turretBody = new THREE.Group();
   if (isVTL) {
-    // 12-Station Crown Ring positioned high and clear above cutting zone
-    const outerRing = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, 7, 32, 1, true), ringMat);
-    const topRing = new THREE.Mesh(new THREE.RingGeometry(10.5, 16, 32), ringMat);
+    const outerRing = new THREE.Mesh(new THREE.CylinderGeometry(15, 15, 6.5, 32, 1, true), ringMat);
+    const topRing = new THREE.Mesh(new THREE.RingGeometry(10, 15, 32), ringMat);
     topRing.rotation.x = -Math.PI / 2;
-    topRing.position.y = 3.5;
+    topRing.position.y = 3.25;
     turretBody.add(outerRing, topRing);
 
     for (let i = 0; i < 12; i++) {
       const ang = (i / 12) * Math.PI * 2;
-      const st = new THREE.Mesh(new THREE.BoxGeometry(4, 7.5, 4), pocketMat);
-      st.position.set(Math.cos(ang) * 13.2, 0, Math.sin(ang) * 13.2);
+      const st = new THREE.Mesh(new THREE.BoxGeometry(3.8, 7, 3.8), pocketMat);
+      st.position.set(Math.cos(ang) * 12.5, 0, Math.sin(ang) * 12.5);
       st.rotation.y = -ang;
       turretBody.add(st);
     }
-    turretBody.position.set(16, 26, 0);
+    // Placed on outer (+X) & above (+Y) so turret never touches job
+    turretBody.position.set(isID ? 18 : 22, 26, 0);
   } else {
-    // Multi-station Turning Turret Drum positioned clear on +X/+Y side
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(11, 11, 10, 24), ringMat);
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(10.5, 10.5, 9.5, 24), ringMat);
     drum.rotation.x = Math.PI / 2;
-    drum.position.set(18, 22, 0);
+    drum.position.set(22, 22, 0);
     turretBody.add(drum);
 
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2;
       const pk = new THREE.Mesh(new THREE.BoxGeometry(3.5, 3.5, 8), pocketMat);
-      pk.position.set(18 + Math.cos(ang) * 11.2, 22 + Math.sin(ang) * 11.2, 0);
+      pk.position.set(22 + Math.cos(ang) * 10.8, 22 + Math.sin(ang) * 10.8, 0);
       pk.rotation.z = ang;
       turretBody.add(pk);
     }
   }
   assembly.add(turretBody);
 
-  // 2. Distinct Tool Holder & Insert extending from turret to exact tip (0,0,0)
+  // 2. Holder & Insert oriented strictly by OD (Insert toward Job Side) vs ID (Insert toward Turret/Wall Side)
   const toolPart = new THREE.Group();
 
   if (isID || operation === 'Boring' || operation === 'Drilling' || operation === 'Tapping') {
-    // Cylindrical Boring Bar / Drill reaching into bore without turret touching OD
+    // ID Operation: Boring bar extends from turret side (+X) toward bore center, while INSERT faces OUTWARD (+X) toward Turret/ID Wall!
     const barLen = 22;
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, barLen, 20), holderMat);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, barLen, 20), holderMat);
     bar.rotation.z = Math.PI / 2;
     bar.position.set(barLen / 2, 0, 0);
     toolPart.add(bar);
 
-    // Connect bar back up to turret
-    const riser = new THREE.Mesh(new THREE.BoxGeometry(5, 22, 5), holderMat);
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(4.5, 22, 4.5), holderMat);
     riser.position.set(barLen, 11, 0);
     toolPart.add(riser);
 
-    // Small internal insert / drill point at tip (0,0,0)
-    const tipIns = new THREE.Mesh(new THREE.ConeGeometry(2.4, 5, 4), insertMat);
-    tipIns.rotation.z = Math.PI / 2;
-    tipIns.position.set(1.2, 0, 0);
-    toolPart.add(tipIns);
-  } else if (operation === 'Threading') {
-    // Laydown / External Threading Holder + Triangular 60° V-Thread Insert
-    const vPost = new THREE.Mesh(new THREE.BoxGeometry(4.5, 22, 4.5), holderMat);
-    vPost.position.set(0, 11, 0);
-    toolPart.add(vPost);
-
-    const hArm = new THREE.Mesh(new THREE.BoxGeometry(16, 4.5, 4.5), holderMat);
-    hArm.position.set(8, 22, 0);
-    toolPart.add(hArm);
-
-    // Triangular Insert Seat + Sharp Golden Threading Insert at tip
-    const seat = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 2, 3), holderMat);
-    seat.rotation.x = Math.PI / 2;
-    seat.position.set(1.5, 1.5, 0);
-    toolPart.add(seat);
-
-    const vInsert = new THREE.Mesh(new THREE.ConeGeometry(3.2, 6.5, 3), insertMat);
-    vInsert.rotation.z = Math.PI * 0.75;
-    vInsert.position.set(1.2, 1.2, 0);
-    toolPart.add(vInsert);
-  } else if (operation === 'Grooving' || operation === 'Parting') {
-    // Thin Blade Grooving / Parting Tool Holder + Narrow Blade Tip
-    const vPost = new THREE.Mesh(new THREE.BoxGeometry(2.2, 22, 4.5), holderMat);
-    vPost.position.set(0, 11, 0);
-    toolPart.add(vPost);
-
-    const hArm = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 5), holderMat);
-    hArm.position.set(8, 22, 0);
-    toolPart.add(hArm);
-
-    const grooveTip = new THREE.Mesh(new THREE.BoxGeometry(2.0, 5.5, 4.2), insertMat);
-    grooveTip.position.set(0, 2.2, 0);
-    toolPart.add(grooveTip);
+    // ID Insert points OUTWARD (+X, toward turret/bore wall side)
+    const idInsert = new THREE.Mesh(new THREE.ConeGeometry(2.6, 5.5, 4), insertMat);
+    idInsert.rotation.z = -Math.PI / 2;
+    idInsert.position.set(2.2, 0, 0);
+    toolPart.add(idInsert);
   } else {
-    // OD Turning / Facing (CNMG Diamond Insert Holder + Clamp Pin)
-    const vPost = new THREE.Mesh(new THREE.BoxGeometry(5, 22, 5), holderMat);
-    vPost.position.set(0, 11, 0);
+    // OD Operations (Turning / Facing / Threading / Grooving / Parting):
+    // Holder & Turret sit on +X / +Y (outside job), and INSERT tip points INWARD (-X / -Y) directly onto Job Side!
+    const vPost = new THREE.Mesh(
+      new THREE.BoxGeometry(operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.5, 22, 4.5),
+      holderMat
+    );
+    vPost.position.set(3.5, 11, 0);
     toolPart.add(vPost);
 
-    const hArm = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 5), holderMat);
-    hArm.position.set(8, 22, 0);
+    const hArm = new THREE.Mesh(new THREE.BoxGeometry(18, 4.5, 4.5), holderMat);
+    hArm.position.set(12.5, 22, 0);
     toolPart.add(hArm);
 
-    // 80-deg Diamond Carbide Insert at tip (0,0,0)
-    const diamondInsert = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 3.6, 2.2, 4), insertMat);
-    diamondInsert.rotation.x = Math.PI / 2;
-    diamondInsert.rotation.y = Math.PI / 4;
-    diamondInsert.position.set(1.8, 1.8, 0);
-    toolPart.add(diamondInsert);
+    if (operation === 'Threading') {
+      // OD 60-deg Threading Insert pointing INWARD (-X toward job)
+      const odThreadIns = new THREE.Mesh(new THREE.ConeGeometry(3.2, 6.5, 3), insertMat);
+      odThreadIns.rotation.z = Math.PI / 2;
+      odThreadIns.position.set(-1.5, 1.5, 0);
+      toolPart.add(odThreadIns);
+    } else if (operation === 'Grooving' || operation === 'Parting') {
+      // OD Grooving/Parting Blade Tip pointing INWARD (-X toward job)
+      const odGrooveIns = new THREE.Mesh(new THREE.BoxGeometry(2.0, 5.2, 4.0), insertMat);
+      odGrooveIns.position.set(-1.0, 2.0, 0);
+      toolPart.add(odGrooveIns);
+    } else {
+      // OD CNMG Diamond Insert pointing INWARD (-X toward job side)
+      const odDiamondIns = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2.2, 4), insertMat);
+      odDiamondIns.rotation.x = Math.PI / 2;
+      odDiamondIns.rotation.y = Math.PI / 4;
+      odDiamondIns.position.set(-1.5, 2.0, 0);
+      toolPart.add(odDiamondIns);
+    }
   }
 
   assembly.add(toolPart);
@@ -721,7 +701,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Box className="w-4 h-4" />
-          <span>3D {operation} Tooling & Turret Sim</span>
+          <span>3D {operation} ({workSide}) Tooling & Turret Sim</span>
         </div>
         <div className="flex items-center gap-1">
           <button
