@@ -520,39 +520,50 @@ const applyNoseCompToCode = (rawCode, compVal) => {
   let out = str.replace(/\|\s*G4[012]\s*\)/g, ' | ' + mode + ')');
 
   if (mode === 'G40') {
-    return out.replace(/\b(G41|G42)\b/g, 'G40');
+    return out
+      .replace(/\b(G41|G42)\b/g, 'G40')
+      .replace(/^\s*G4[012]\s*\(TOOL NOSE RADIUS COMPENSATION ACTIVE\)\s*\r?\n?/gm, '')
+      .replace(/^\s*G40\s*\(CANCEL TOOL NOSE COMPENSATION\)\s*\r?\n?/gm, '');
   }
 
-  // Replace existing G41/G42 with chosen mode
-  out = out.replace(/\b(G41|G42)\b/g, mode);
+  // If G41/G42 already exists in code, normalize to chosen mode
+  if (/\b(G41|G42)\b/.test(out)) {
+    return out.replace(/\b(G41|G42)\b/g, mode);
+  }
 
-  // If no G41/G42 exists in motion lines, inject active G41/G42 before first G01 cutting move and G40 before retract/M30
-  if (!/\b(G41|G42)\b/.test(out)) {
-    const lines = out.split(/\r?\n/);
-    let applied = false;
-    for (let i = 0; i < lines.length; i++) {
-      const t = lines[i].trim();
-      if (/^(N\d+\s+)?G0?1\b/.test(t) && /[XZC]/i.test(t)) {
-        lines.splice(i, 0, mode + ' (TOOL NOSE RADIUS COMPENSATION ACTIVE)');
-        applied = true;
+  // Otherwise inject active G41/G42 right before first cutting G01 move and G40 before program end/retract
+  const lines = out.split(/\r?\n/);
+  let insertedActive = false;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^(N\d+\s+)?G0?1\b/.test(t) && /[XZC]/i.test(t)) {
+      lines.splice(i, 0, mode + ' (TOOL NOSE RADIUS COMPENSATION ACTIVE)');
+      insertedActive = true;
+      break;
+    }
+  }
+
+  if (insertedActive) {
+    let insertedCancel = false;
+    for (let j = lines.length - 1; j >= 0; j--) {
+      const t2 = lines[j].trim();
+      if (/^(N\d+\s+)?(G28|G0?0\s+X100|M0?5|M30)\b/.test(t2)) {
+        lines.splice(j, 0, 'G40 (CANCEL TOOL NOSE COMPENSATION)');
+        insertedCancel = true;
         break;
       }
     }
-    if (applied) {
-      for (let j = lines.length - 1; j >= 0; j--) {
-        const t2 = lines[j].trim();
-        if (/^(N\d+\s+)?(G28|G0?0\s+X100|M0?5|M30)\b/.test(t2)) {
-          lines.splice(j, 0, 'G40 (CANCEL TOOL NOSE COMPENSATION)');
-          break;
-        }
+    if (!insertedCancel) {
+      const m30Idx = lines.findIndex((ln) => /^%?\s*M30\b/.test(ln.trim()));
+      if (m30Idx >= 0) {
+        lines.splice(m30Idx, 0, 'G40 (CANCEL TOOL NOSE COMPENSATION)');
       }
-      out = lines.join('\n');
     }
+    out = lines.join('\n');
   }
 
   return out;
 };
-
 const formatTurnMillByController = (rawCode, ctrlName) => {
   const codeStr = String(rawCode || '');
   const u = String(ctrlName || 'Fanuc').toUpperCase();
@@ -1677,7 +1688,7 @@ const [copied, setCopied] = useState(false);
                 )}
               </div>
             </div>
-            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{(typeof operation !== 'undefined' && operation === 'Turn-Mill') ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, typeof controller !== 'undefined' ? controller : 'Fanuc') : (p.code)}</pre>
+            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{applyNoseCompToCode((typeof operation !== 'undefined' && operation === 'Turn-Mill') ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, typeof controller !== 'undefined' ? controller : 'Fanuc') : (p.code), typeof compMode !== 'undefined' ? compMode : '')}</pre>
           </div>
         ))}
       </div>
