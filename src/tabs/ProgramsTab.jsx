@@ -134,7 +134,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   useEffect(() => {
     setSelectedTemplateIdx(0);
     if (filteredTemplates[0]) {
-      setTitle(${filteredTemplates[0].name} []);
+      setTitle(filteredTemplates[0].name + " [" + programMode + "]");
       setCode(adaptCodeForMode(filteredTemplates[0].code, programMode, controller, domainKey, operation, workSide));
     }
   }, [filteredTemplates, programMode, controller, domainKey, operation, workSide]);
@@ -156,7 +156,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     const i = Number(idx);
     setSelectedTemplateIdx(i);
     if (filteredTemplates[i]) {
-      setTitle(${filteredTemplates[i].name} []);
+      setTitle(filteredTemplates[i].name + " [" + programMode + "]");
       setCode(adaptCodeForMode(filteredTemplates[i].code, programMode, controller, domainKey, operation, workSide));
     }
   };
@@ -406,5 +406,6 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
+
 
 
