@@ -75,14 +75,38 @@ const STANDARD_TAPS = [
 ];
 
 const STANDARD_THREADS = [
-  { label: 'M12 × 1.75 (ISO Standard)', dia: '12', pitch: '1.75' },
-  { label: 'M16 × 2.0 (ISO Standard)', dia: '16', pitch: '2.0' },
-  { label: 'M20 × 2.5 (ISO Standard)', dia: '20', pitch: '2.5' },
-  { label: 'M24 × 3.0 (ISO Standard)', dia: '24', pitch: '3.0' },
-  { label: 'M30 × 3.5 (ISO Standard)', dia: '30', pitch: '3.5' },
-  { label: 'M36 × 4.0 (ISO Standard)', dia: '36', pitch: '4.0' },
-  { label: 'M42 × 4.5 (ISO Standard)', dia: '42', pitch: '4.5' },
-  { label: 'M48 × 5.0 (ISO Standard)', dia: '48', pitch: '5.0' }
+  { label: 'M1.6 × 0.35 (ISO Coarse)', dia: '1.6', pitch: '0.35' },
+  { label: 'M2 × 0.4 (ISO Coarse)', dia: '2', pitch: '0.4' },
+  { label: 'M2.5 × 0.45 (ISO Coarse)', dia: '2.5', pitch: '0.45' },
+  { label: 'M3 × 0.5 (ISO Coarse)', dia: '3', pitch: '0.5' },
+  { label: 'M4 × 0.7 (ISO Coarse)', dia: '4', pitch: '0.7' },
+  { label: 'M5 × 0.8 (ISO Coarse)', dia: '5', pitch: '0.8' },
+  { label: 'M6 × 1.0 (ISO Coarse)', dia: '6', pitch: '1.0' },
+  { label: 'M8 × 1.25 (ISO Coarse)', dia: '8', pitch: '1.25' },
+  { label: 'M10 × 1.5 (ISO Coarse)', dia: '10', pitch: '1.5' },
+  { label: 'M12 × 1.75 (ISO Coarse)', dia: '12', pitch: '1.75' },
+  { label: 'M14 × 2.0 (ISO Coarse)', dia: '14', pitch: '2.0' },
+  { label: 'M16 × 2.0 (ISO Coarse)', dia: '16', pitch: '2.0' },
+  { label: 'M18 × 2.5 (ISO Coarse)', dia: '18', pitch: '2.5' },
+  { label: 'M20 × 2.5 (ISO Coarse)', dia: '20', pitch: '2.5' },
+  { label: 'M22 × 2.5 (ISO Coarse)', dia: '22', pitch: '2.5' },
+  { label: 'M24 × 3.0 (ISO Coarse)', dia: '24', pitch: '3.0' },
+  { label: 'M27 × 3.0 (ISO Coarse)', dia: '27', pitch: '3.0' },
+  { label: 'M30 × 3.5 (ISO Coarse)', dia: '30', pitch: '3.5' },
+  { label: 'M33 × 3.5 (ISO Coarse)', dia: '33', pitch: '3.5' },
+  { label: 'M36 × 4.0 (ISO Coarse)', dia: '36', pitch: '4.0' },
+  { label: 'M39 × 4.0 (ISO Coarse)', dia: '39', pitch: '4.0' },
+  { label: 'M42 × 4.5 (ISO Coarse)', dia: '42', pitch: '4.5' },
+  { label: 'M45 × 4.5 (ISO Coarse)', dia: '45', pitch: '4.5' },
+  { label: 'M48 × 5.0 (ISO Coarse)', dia: '48', pitch: '5.0' },
+  { label: 'M52 × 5.0 (ISO Coarse)', dia: '52', pitch: '5.0' },
+  { label: 'M56 × 5.5 (ISO Coarse)', dia: '56', pitch: '5.5' },
+  { label: 'M60 × 5.5 (ISO Coarse)', dia: '60', pitch: '5.5' },
+  { label: 'M64 × 6.0 (ISO Coarse)', dia: '64', pitch: '6.0' },
+  { label: 'M72 × 6.0 (ISO Coarse)', dia: '72', pitch: '6.0' },
+  { label: 'M80 × 6.0 (ISO Coarse)', dia: '80', pitch: '6.0' },
+  { label: 'M90 × 6.0 (ISO Coarse)', dia: '90', pitch: '6.0' },
+  { label: 'M100 × 6.0 (ISO Coarse)', dia: '100', pitch: '6.0' }
 ];
 
 function classifyTemplate(domainKey, name) {
@@ -179,35 +203,36 @@ function adaptCodeForMode(baseCode, mode, controller, domainKey, operation, work
 
   // Dedicated Threading Program with Auto-Calculated Thread Height H
   if (domainKey === 'Turning' && operation === 'Threading') {
-    const thDia = Number(mfgCfg.threadDia || 24);
+    const majDia = Number(mfgCfg.threadMajorDia || 24);
+    const minDia = Number(mfgCfg.threadMinorDia || 20.319);
     const thPitch = Number(mfgCfg.threadPitch || 3.0);
     const thH = Number(mfgCfg.threadHeight || (0.61343 * thPitch).toFixed(3));
-    const minorDia = isID ? (thDia + thH * 2).toFixed(3) : (thDia - thH * 2).toFixed(3);
+    const targetX = isID ? majDia.toFixed(3) : minDia.toFixed(3);
     const pHeightMicron = Math.round(thH * 1000);
     const lenZ = Math.min(35, Number(mfgCfg.stockZ || 45) - 5);
 
     if (isSiemens) {
       return `${header}
-; SIEMENS CYCLE97 THREADING (AUTO HEIGHT H=${thH}MM)
+; SIEMENS CYCLE97 ${workSide} THREADING (MAJOR=${majDia}, MINOR=${minDia}, H=${thH}MM)
 G21 G90 G95 G40
 G75 X0 Z0
-T="THREAD_TOOL" D1
+T="THREAD_TOOL_${workSide}" D1
 G97 S800 M3
-G00 X${isID ? thDia - 6 : thDia + 5} Z5 M8
-CYCLE97(${thPitch}, 0, 0, -${lenZ}, ${thDia}, ${thDia}, 5, 2, ${thH}, 0.05, 30, 0, 6, 1, 3, 1)
+G00 X${isID ? (minDia - 5).toFixed(1) : (majDia + 5).toFixed(1)} Z5 M8
+CYCLE97(${thPitch}, 0, 0, -${lenZ}, ${majDia}, ${minDia}, 5, 2, ${thH}, 0.05, 30, 0, 6, 1, 3, ${isID ? 2 : 1})
 G75 X0 Z0 M9
 M5
 M30`;
     }
-    return `O7601 (${controller.toUpperCase()} G76 THREADING - M${thDia}x${thPitch} AUTO H=${thH}MM)
+    return `O7601 (${controller.toUpperCase()} G76 ${workSide} THREADING - MAJOR ${majDia} / MINOR ${minDia} / H=${thH}MM)
 ${header}
 G21 G40 G99
 G28 U0. W0.
-T0404 (60 DEG THREADING INSERT)
+T0404 (60 DEG ${workSide} THREADING INSERT)
 G97 S800 M03
-G00 X${isID ? (thDia - 6).toFixed(1) : (thDia + 5).toFixed(1)} Z5.0 M08
+G00 X${isID ? (minDia - 5).toFixed(1) : (majDia + 5).toFixed(1)} Z5.0 M08
 G76 P020060 Q100 R0.05
-G76 X${minorDia} Z-${lenZ}.0 P${pHeightMicron} Q250 F${thPitch}
+G76 X${targetX} Z-${lenZ}.0 P${pHeightMicron} Q250 F${thPitch}
 G28 U0. W0. M09
 M05
 M30`;
@@ -516,15 +541,40 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   const [tapPitch, setTapPitch] = useState('1.5');
 
   const [threadStandard, setThreadStandard] = useState('Standard Metric ISO');
-  const [selectedStdThread, setSelectedStdThread] = useState(STANDARD_THREADS[3].label);
-  const [threadDia, setThreadDia] = useState('24');
+  const [selectedStdThread, setSelectedStdThread] = useState('M24 × 3.0 (ISO Coarse)');
   const [threadPitch, setThreadPitch] = useState('3.0');
+  const [threadMajorDia, setThreadMajorDia] = useState('24.000');
+  const [threadMinorDia, setThreadMinorDia] = useState('20.319');
 
   // Auto-calculated Thread Single Depth Height H = 0.61343 * Pitch
   const threadHeight = useMemo(() => {
     const p = Number(threadPitch) || 0;
     return (0.61343 * p).toFixed(3);
   }, [threadPitch]);
+
+  const handleThreadPitchChange = (newPitch) => {
+    setThreadPitch(newPitch);
+    const h = 0.61343 * (Number(newPitch) || 0);
+    if (workSide === 'ID') {
+      const maj = (Number(threadMinorDia) || 0) + 2 * h;
+      setThreadMajorDia(maj.toFixed(3));
+    } else {
+      const min = Math.max(0, (Number(threadMajorDia) || 0) - 2 * h);
+      setThreadMinorDia(min.toFixed(3));
+    }
+  };
+
+  const handleThreadMajorChange = (newMaj) => {
+    setThreadMajorDia(newMaj);
+    const h = 0.61343 * (Number(threadPitch) || 0);
+    setThreadMinorDia(Math.max(0, (Number(newMaj) || 0) - 2 * h).toFixed(3));
+  };
+
+  const handleThreadMinorChange = (newMin) => {
+    setThreadMinorDia(newMin);
+    const h = 0.61343 * (Number(threadPitch) || 0);
+    setThreadMajorDia(((Number(newMin) || 0) + 2 * h).toFixed(3));
+  };
 
   // Chamfer Tool States
   const [chamferDia, setChamferDia] = useState('10');
@@ -565,7 +615,8 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       tapDia,
       tapPitch,
       threadStandard,
-      threadDia,
+      threadMajorDia,
+      threadMinorDia,
       threadPitch,
       threadHeight,
       chamferDia,
@@ -598,7 +649,8 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
       tapDia,
       tapPitch,
       threadStandard,
-      threadDia,
+      threadMajorDia,
+      threadMinorDia,
       threadPitch,
       threadHeight,
       chamferDia,
@@ -1111,67 +1163,118 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
               )}
 
               {operation === 'Threading' && (
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 pt-2 border-t border-amber-500/30 bg-amber-500/5 p-2.5 rounded-lg">
+                <div className="grid grid-cols-1 sm:grid-cols-6 gap-2.5 pt-2 border-t border-amber-500/30 bg-amber-500/5 p-2.5 rounded-lg">
                   <div>
-                    <label className="block text-[10px] font-semibold text-amber-300 mb-1">Thread Standard Cascade</label>
+                    <label className="block text-[10px] font-semibold text-amber-300 mb-1">Thread Standard</label>
                     <select
                       value={threadStandard}
                       onChange={(e) => setThreadStandard(e.target.value)}
                       className="w-full bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                     >
-                      <option value="Standard Metric ISO">Standard Metric ISO</option>
+                      <option value="Standard Metric ISO">Standard (M1.6 – M100)</option>
                       <option value="Non-Standard Pitch">Non-Standard Pitch</option>
                     </select>
                   </div>
 
                   {threadStandard === 'Standard Metric ISO' ? (
-                    <div>
-                      <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Standard Thread Size</label>
-                      <select
-                        value={selectedStdThread}
-                        onChange={(e) => {
-                          setSelectedStdThread(e.target.value);
-                          const found = STANDARD_THREADS.find((th) => th.label === e.target.value);
-                          if (found) {
-                            setThreadDia(found.dia);
-                            setThreadPitch(found.pitch);
-                          }
-                        }}
-                        className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-                      >
-                        {STANDARD_THREADS.map((th) => (
-                          <option key={th.label} value={th.label}>{th.label}</option>
-                        ))}
-                      </select>
-                    </div>
+                    <>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-cyan-300 mb-1">Standard Size (M1.6–M100)</label>
+                        <select
+                          value={selectedStdThread}
+                          onChange={(e) => {
+                            setSelectedStdThread(e.target.value);
+                            const found = STANDARD_THREADS.find((th) => th.label === e.target.value);
+                            if (found) {
+                              setThreadPitch(found.pitch);
+                              const h = 0.61343 * Number(found.pitch);
+                              setThreadMajorDia(Number(found.dia).toFixed(3));
+                              setThreadMinorDia(Math.max(0, Number(found.dia) - 2 * h).toFixed(3));
+                            }
+                          }}
+                          className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                        >
+                          {STANDARD_THREADS.map((th) => (
+                            <option key={th.label} value={th.label}>{th.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Pitch P (mm)</label>
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={threadPitch}
+                          onChange={(e) => handleThreadPitchChange(e.target.value)}
+                          className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                        />
+                      </div>
+                    </>
                   ) : (
                     <div>
-                      <label className="block text-[10px] font-semibold text-amber-300 mb-1">Custom Major Dia (mm)</label>
+                      <label className="block text-[10px] font-semibold text-amber-300 mb-1">1. Custom Pitch P (mm)</label>
                       <input
                         type="number"
-                        step="0.5"
-                        value={threadDia}
-                        onChange={(e) => setThreadDia(e.target.value)}
-                        className="w-full bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                        step="0.05"
+                        value={threadPitch}
+                        onChange={(e) => handleThreadPitchChange(e.target.value)}
+                        className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                       />
                     </div>
                   )}
 
-                  <div>
-                    <label className="block text-[10px] font-semibold text-emerald-300 mb-1">Thread Pitch P (mm)</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={threadPitch}
-                      onChange={(e) => setThreadPitch(e.target.value)}
-                      className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
-                    />
-                  </div>
+                  {workSide === 'ID' ? (
+                    <>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-cyan-300 mb-1">ID Minor Dia (Bore X)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={threadMinorDia}
+                          onChange={(e) => handleThreadMinorChange(e.target.value)}
+                          className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-emerald-300 mb-1">ID Major Dia (Root X)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={threadMajorDia}
+                          onChange={(e) => handleThreadMajorChange(e.target.value)}
+                          className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-cyan-300 mb-1">OD Major Dia (Start X)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={threadMajorDia}
+                          onChange={(e) => handleThreadMajorChange(e.target.value)}
+                          className="w-full bg-slate-900 border border-cyan-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-emerald-300 mb-1">OD Minor Dia (Core X)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={threadMinorDia}
+                          onChange={(e) => handleThreadMinorChange(e.target.value)}
+                          className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
+                        />
+                      </div>
+                    </>
+                  )}
 
-                  <div className="sm:col-span-2 bg-slate-900 border border-cyan-500/50 rounded-lg px-3 py-1.5 flex flex-col justify-center">
-                    <span className="text-[10px] font-semibold text-cyan-300">Auto-Calculated Thread Height H (0.6134 × P)</span>
-                    <span className="text-xs font-mono font-bold text-emerald-300">
-                      H = {threadHeight} mm  (Fanuc G76 P{Math.round(Number(threadHeight) * 1000)})
+                  <div className={`${threadStandard === 'Standard Metric ISO' ? 'sm:col-span-1' : 'sm:col-span-2'} bg-slate-900 border border-cyan-500/50 rounded-lg px-2.5 py-1.5 flex flex-col justify-center`}>
+                    <span className="text-[9px] font-semibold text-cyan-300">Auto Height H (0.6134×P)</span>
+                    <span className="text-[11px] font-mono font-bold text-emerald-300">
+                      H={threadHeight} (P{Math.round(Number(threadHeight) * 1000)})
                     </span>
                   </div>
                 </div>
@@ -1415,3 +1518,4 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
+

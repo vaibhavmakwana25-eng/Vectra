@@ -1,27 +1,7 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Play, Pause, RotateCcw, Box, ZoomIn, ZoomOut, Scissors } from 'lucide-react';
-
-function circlePoints(radius, steps = 28) {
-  const pts = [];
-  for (let i = 0; i <= steps; i++) {
-    const ang = (i / steps) * Math.PI * 2;
-    pts.push({
-      x: Number((Math.cos(ang) * radius).toFixed(2)),
-      y: Number((Math.sin(ang) * radius).toFixed(2))
-    });
-  }
-  return pts;
-}
-
-function rectPoints(halfW, halfH) {
-  return [
-    { x: -halfW, y: -halfH },
-    { x: halfW, y: -halfH },
-    { x: halfW, y: halfH },
-    { x: -halfW, y: halfH },
-    { x: -halfW, y: -halfH }
-  ];
-}
 
 function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
@@ -43,32 +23,35 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
     const isFace = workSide === 'Face' || operation === 'Facing';
 
     if (operation === 'Drilling' || operation === 'Tapping') {
-      const drillDia = operation === 'Tapping' ? Math.max(4, Number(mfgCfg.tapDia || 10) - Number(mfgCfg.tapPitch || 1.5)) : Number(mfgCfg.drillDia || 16);
-      const peck = Math.max(5, Number(mfgCfg.peckDepth || 10));
-      moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: rawOD, curID: 0, cutZ: 0, label: `G00 X0.0 Z4.0 (${operation} Ø${drillDia}MM)` });
+      const drillDia = operation === 'Tapping'
+        ? Math.max(2, Number(mfgCfg.tapDia || 10) - Number(mfgCfg.tapPitch || 1.5))
+        : Number(mfgCfg.drillDia || 16);
+      const peck = Math.max(4, Number(mfgCfg.peckDepth || 10));
+      moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: rawOD, curID: 0, cutZ: 0, label: `G00 X0.0 Z4.0 (${operation} Ø${drillDia.toFixed(1)}MM)` });
       for (let d = -peck; d >= -Math.min(45, partLen); d -= peck) {
         moves.push({ x: 0, y: 0, z: d, rapid: false, passType: 'rough', curOD: rawOD, curID: drillDia, cutZ: Math.abs(d), label: `${operation.toUpperCase()} Z${d}.0` });
         moves.push({ x: 0, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: rawOD, curID: drillDia, cutZ: Math.abs(d), label: 'G00 Z4.0 RETRACT' });
       }
       moves.push({ x: 0, y: 0, z: 15, rapid: true, passType: 'rapid', curOD: rawOD, curID: drillDia, cutZ: Math.min(45, partLen), label: 'G00 HOME' });
     } else if (operation === 'Threading') {
-      const thDia = Number(mfgCfg.threadDia || 24);
-      const thH = Number(mfgCfg.threadHeight || 1.84);
-      const safeX = isID ? thDia - 6 : thDia + 5;
+      const majDia = Number(mfgCfg.threadMajorDia || 24);
+      const minDia = Number(mfgCfg.threadMinorDia || 20.32);
+      const safeX = isID ? minDia - 6 : majDia + 6;
       const targetLen = Math.min(35, partLen - 5);
       const passRatios = [0.4, 0.7, 0.9, 1.0];
       passRatios.forEach((ratio, idx) => {
-        const px = isID ? thDia - thH * 2 * (1 - ratio) : thDia - thH * 2 * ratio;
-        moves.push({ x: safeX, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: 0, label: `THREAD PASS ${idx + 1}/4` });
-        moves.push({ x: px, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: 0, label: `G00 X${px.toFixed(2)}` });
-        // Progressive Z steps so user sees threading advance line by line
+        const px = isID
+          ? minDia + (majDia - minDia) * ratio
+          : majDia - (majDia - minDia) * ratio;
+        moves.push({ x: safeX, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: isID ? rawOD : majDia, curID: isID ? minDia : 0, cutZ: 0, label: `THREAD PASS ${idx + 1}/4` });
+        moves.push({ x: px, y: 0, z: 4, rapid: true, passType: 'rapid', curOD: isID ? rawOD : majDia, curID: isID ? minDia : 0, cutZ: 0, label: `G00 X${px.toFixed(2)}` });
         for (let s = 1; s <= 4; s++) {
           const zStep = -(targetLen * s) / 4;
-          moves.push({ x: px, y: 0, z: zStep, rapid: false, passType: idx === 3 ? 'finish' : 'rough', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: Math.abs(zStep), label: `G76 X${px.toFixed(2)} Z${zStep.toFixed(1)}` });
+          moves.push({ x: px, y: 0, z: zStep, rapid: false, passType: idx === 3 ? 'finish' : 'rough', curOD: isID ? rawOD : majDia, curID: isID ? minDia : 0, cutZ: Math.abs(zStep), isThread: true, label: `G76 X${px.toFixed(2)} Z${zStep.toFixed(1)}` });
         }
-        moves.push({ x: safeX, y: 0, z: -targetLen, rapid: true, passType: 'rapid', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: targetLen, label: 'G00 RETRACT' });
+        moves.push({ x: safeX, y: 0, z: -targetLen, rapid: true, passType: 'rapid', curOD: isID ? rawOD : majDia, curID: isID ? minDia : 0, cutZ: targetLen, label: 'G00 RETRACT' });
       });
-      moves.push({ x: safeX, y: 0, z: 12, rapid: true, passType: 'rapid', curOD: isID ? rawOD : thDia, curID: isID ? thDia : 0, cutZ: targetLen, label: 'THREADING COMPLETE' });
+      moves.push({ x: safeX, y: 0, z: 12, rapid: true, passType: 'rapid', curOD: isID ? rawOD : majDia, curID: isID ? minDia : 0, cutZ: targetLen, label: 'THREADING COMPLETE' });
     } else if (isFace) {
       [-1.0, -2.0, -3.0].forEach((fz, idx) => {
         moves.push({ x: rawOD + 2, y: 0, z: fz, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 0, label: `FACE PASS ${idx + 1} Z${fz}` });
@@ -89,13 +72,13 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
       moves.push({ x: startX, y: 0, z: cutZ, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 4, label: 'G00 RETRACT' });
       moves.push({ x: startX, y: 0, z: 12, rapid: true, passType: 'rapid', curOD: rawOD, curID: isID ? rawID : 0, cutZ: 4, label: 'G00 HOME' });
     } else if (isID) {
-      let activeID = Math.max(12, rawID);
+      let activeID = Math.max(10, rawID);
       const targetZ = Math.max(10, partLen - lenStock);
       if (stage.includes('Rough')) {
-        for (let px = activeID + 4; px <= finOD - diaStock; px += 4) {
+        const step = Math.max(2, (finOD - diaStock - activeID) / 3);
+        for (let px = activeID + step; px <= finOD - diaStock + 0.01; px += step) {
           moves.push({ x: activeID - 2, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: 0, label: `ID ROUGH APPROACH X${px.toFixed(1)}` });
           moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: rawOD, curID: activeID, cutZ: 0, label: `G00 X${px.toFixed(1)}` });
-          // 4 progressive Z-segments so material removes gradually!
           for (let s = 1; s <= 4; s++) {
             const zProg = (targetZ * s) / 4;
             moves.push({ x: px, y: 0, z: -zProg, rapid: false, passType: 'rough', curOD: rawOD, curID: px, cutZ: zProg, label: `ID ROUGH X${px.toFixed(1)} Z-${zProg.toFixed(1)}` });
@@ -121,10 +104,10 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
       let activeOD = rawOD;
       const targetZ = Math.max(10, partLen - lenStock);
       if (stage.includes('Rough')) {
-        for (let px = rawOD - 4; px >= finOD + diaStock; px -= 4) {
+        const step = Math.max(2, (rawOD - (finOD + diaStock)) / 3);
+        for (let px = rawOD - step; px >= finOD + diaStock - 0.01; px -= step) {
           moves.push({ x: activeOD + 3, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: 0, label: `OD ROUGH APPROACH X${px.toFixed(1)}` });
           moves.push({ x: px, y: 0, z: 2, rapid: true, passType: 'rapid', curOD: activeOD, curID: 0, cutZ: 0, label: `G00 X${px.toFixed(1)}` });
-          // 4 progressive Z-segments so OD steps down smoothly!
           for (let s = 1; s <= 4; s++) {
             const zProg = (targetZ * s) / 4;
             moves.push({ x: px, y: 0, z: -zProg, rapid: false, passType: 'rough', curOD: px, curID: 0, cutZ: zProg, label: `OD CUT X${px.toFixed(1)} Z-${zProg.toFixed(1)}` });
@@ -153,6 +136,22 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
     const isCircSpigot = tName.includes('CIRCULAR SPIGOT') || operation === 'Spigot Milling';
     const isRectSpigot = tName.includes('RECTANGULAR SPIGOT');
 
+    const circlePts = (r, steps = 20) => {
+      const a = [];
+      for (let i = 0; i <= steps; i++) {
+        const ang = (i / steps) * Math.PI * 2;
+        a.push({ x: Number((Math.cos(ang) * r).toFixed(2)), y: Number((Math.sin(ang) * r).toFixed(2)) });
+      }
+      return a;
+    };
+    const rectPts = (w, h) => [
+      { x: -w, y: -h },
+      { x: w, y: -h },
+      { x: w, y: h },
+      { x: -w, y: h },
+      { x: -w, y: -h }
+    ];
+
     if (isCircPocket || isRectPocket || isCircSpigot || isRectSpigot) {
       const isPocket = isCircPocket || isRectPocket;
       const isCirc = !isRectPocket && !isRectSpigot;
@@ -166,13 +165,13 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
           moves.push({ x: 0, y: 0, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, label: `PLUNGE Z${roughZ.toFixed(2)}` });
           if (isCirc) {
             [11, Math.max(15, 22 - wallAllow * 2)].forEach((rad, ri) => {
-              const pts = circlePoints(rad, 16);
+              const pts = circlePts(rad, 16);
               moves.push({ x: pts[0].x, y: pts[0].y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutRad: rad, label: `ROUGH RING ${ri + 1} (R${rad})` });
               pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutRad: rad, label: `G03 X${p.x} Y${p.y}` }));
             });
           } else {
             [{ w: 13, h: 9 }, { w: 26 - wallAllow, h: 16 - wallAllow }].forEach((bx, bi) => {
-              const pts = rectPoints(bx.w, bx.h);
+              const pts = rectPts(bx.w, bx.h);
               moves.push({ x: pts[0].x, y: pts[0].y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutW: bx.w, cutH: bx.h, label: `ROUGH RECT PASS ${bi + 1}` });
               pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutW: bx.w, cutH: bx.h, label: `G01 X${p.x} Y${p.y}` }));
             });
@@ -183,13 +182,13 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
           moves.push({ x: -34, y: 0, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, label: `SPIGOT ROUGH Z${roughZ.toFixed(2)}` });
           if (isCirc) {
             [30, 20 + wallAllow * 2].forEach((rad, ri) => {
-              const pts = circlePoints(rad, 16);
+              const pts = circlePts(rad, 16);
               moves.push({ x: pts[0].x, y: pts[0].y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutRad: rad, label: `SPIGOT STEP ${ri + 1}` });
               pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutRad: rad, label: `G02 X${p.x} Y${p.y}` }));
             });
           } else {
             [{ w: 32, h: 22 }, { w: 22 + wallAllow, h: 14 + wallAllow }].forEach((bx, bi) => {
-              const pts = rectPoints(bx.w, bx.h);
+              const pts = rectPts(bx.w, bx.h);
               moves.push({ x: pts[0].x, y: pts[0].y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutW: bx.w, cutH: bx.h, label: `SPIGOT RECT STEP ${bi + 1}` });
               pts.forEach((p) => moves.push({ x: p.x, y: p.y, z: roughZ, rapid: false, passType: 'rough', cutDepth: curCutDepth, cutW: bx.w, cutH: bx.h, label: `G01 X${p.x} Y${p.y}` }));
             });
@@ -201,8 +200,8 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
         const finZ = stage === 'Wall Finish Only' ? -(depth - btmAllow) : -depth;
         curCutDepth = Math.abs(finZ);
         const wallPts = isCirc
-          ? circlePoints(isPocket ? 22 : 20, 20)
-          : rectPoints(isPocket ? 26 : 22, isPocket ? 16 : 14);
+          ? circlePts(isPocket ? 22 : 20, 20)
+          : rectPts(isPocket ? 26 : 22, isPocket ? 16 : 14);
         moves.push({ x: wallPts[0].x, y: wallPts[0].y, z: finZ, rapid: false, passType: 'finish', cutDepth: curCutDepth, cutRad: isPocket ? 22 : 20, cutW: isPocket ? 26 : 22, cutH: isPocket ? 16 : 14, label: `${mfgCfg.compMode || 'G41'} FINISH Z${finZ.toFixed(2)}` });
         wallPts.forEach((p) => moves.push({ x: p.x, y: p.y, z: finZ, rapid: false, passType: 'finish', cutDepth: curCutDepth, cutRad: isPocket ? 22 : 20, cutW: isPocket ? 26 : 22, cutH: isPocket ? 16 : 14, label: `FINISH X${p.x} Y${p.y}` }));
       }
@@ -210,8 +209,8 @@ function parseToolpath(domainKey, workSide, operation, templateName = '', mfgCfg
       if (stage.includes('Chamfer')) {
         const chZ = -chamfSize;
         const chPts = isCirc
-          ? circlePoints(isPocket ? 22.5 : 19.5, 20)
-          : rectPoints(isPocket ? 26.5 : 21.5, isPocket ? 16.5 : 13.5);
+          ? circlePts(isPocket ? 22.5 : 19.5, 20)
+          : rectPts(isPocket ? 26.5 : 21.5, isPocket ? 16.5 : 13.5);
         moves.push({ x: chPts[0].x, y: chPts[0].y, z: 4, rapid: true, passType: 'rapid', cutDepth: curCutDepth, label: 'CHAMFER RAPID G43 H03' });
         moves.push({ x: chPts[0].x, y: chPts[0].y, z: chZ, rapid: false, passType: 'chamfer', cutDepth: curCutDepth, label: `CHAMFER C${chamfSize}` });
         chPts.forEach((p) => moves.push({ x: p.x, y: p.y, z: chZ, rapid: false, passType: 'chamfer', cutDepth: curCutDepth, label: `CHAMFER X${p.x} Y${p.y}` }));
@@ -243,23 +242,17 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
   const [playing, setPlaying] = useState(true);
   const [stepIdx, setStepIdx] = useState(0);
   const [speed, setSpeed] = useState(1);
+  const [halfCut, setHalfCut] = useState(false);
+
+  const mountRef = useRef(null);
+  const sceneRef = useRef(null);
+  const cameraRef = useRef(null);
+  const rendererRef = useRef(null);
+  const controlsRef = useRef(null);
+  const dynamicGroupRef = useRef(null);
+  const clipPlaneRef = useRef(new THREE.Plane(new THREE.Vector3(0, 0, -1), 0));
 
   const isVTL = machineType === 'VTL';
-  const [yaw, setYaw] = useState(-32);
-  const [pitch, setPitch] = useState(62);
-  const [zoom, setZoom] = useState(1.0);
-  const [halfCut, setHalfCut] = useState(false);
-  const [dragStart, setDragStart] = useState(null);
-
-  useEffect(() => {
-    if (domainKey === 'Turning') {
-      setYaw(isVTL ? -28 : -22);
-      setPitch(isVTL ? 64 : 74);
-    } else {
-      setYaw(-35);
-      setPitch(58);
-    }
-  }, [domainKey, isVTL]);
 
   const moves = useMemo(
     () => parseToolpath(domainKey, workSide, operation, templateName, mfgCfg),
@@ -275,145 +268,333 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     if (!playing || moves.length === 0) return;
     const timer = setInterval(() => {
       setStepIdx((prev) => (prev + 1 >= moves.length ? 0 : prev + 1));
-    }, Math.max(80, Math.round(450 / speed)));
+    }, Math.max(85, Math.round(450 / speed)));
     return () => clearInterval(timer);
   }, [playing, moves, speed]);
 
-  const current = moves[stepIdx] || moves[0];
-  const history = moves.slice(0, stepIdx + 1);
-  const tName = (templateName + ' ' + workSide).toUpperCase();
+  // Initialize True WebGL Three.js Scene
+  useEffect(() => {
+    const container = mountRef.current;
+    if (!container) return;
 
-  const project3D = (x, y, z) => {
-    const radYaw = (yaw * Math.PI) / 180;
-    const radPitch = (pitch * Math.PI) / 180;
-    const x1 = x * Math.cos(radYaw) - y * Math.sin(radYaw);
-    const y1 = x * Math.sin(radYaw) + y * Math.cos(radYaw);
-    const screenX = 190 + x1 * 2.15 * zoom;
-    const screenY = 165 + (y1 * Math.cos(radPitch) - z * Math.sin(radPitch)) * 2.15 * zoom;
-    return { x: screenX, y: screenY };
+    const width = container.clientWidth || 380;
+    const height = 350;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#060b16');
+    sceneRef.current = scene;
+
+    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
+    camera.position.set(115, 85, 125);
+    cameraRef.current = camera;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.localClippingEnabled = true;
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controlsRef.current = controls;
+
+    // CAD Studio Three-Point Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+    scene.add(ambientLight);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.35);
+    keyLight.position.set(120, 180, 140);
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.65);
+    rimLight.position.set(-120, -60, -100);
+    scene.add(rimLight);
+
+    // Subtle Machine Bed Grid
+    const grid = new THREE.GridHelper(220, 22, 0x1e293b, 0x0f172a);
+    grid.position.y = -45;
+    scene.add(grid);
+
+    const dynGroup = new THREE.Group();
+    scene.add(dynGroup);
+    dynamicGroupRef.current = dynGroup;
+
+    let animId;
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    const handleResize = () => {
+      if (!container) return;
+      const w = container.clientWidth || 380;
+      camera.aspect = w / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, height);
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', handleResize);
+      controls.dispose();
+      renderer.dispose();
+    };
+  }, []);
+
+  // Camera View Presets
+  const setCameraView = (view) => {
+    const cam = cameraRef.current;
+    const ctrl = controlsRef.current;
+    if (!cam || !ctrl) return;
+    ctrl.target.set(0, 0, 0);
+    if (view === 'iso') cam.position.set(115, 85, 125);
+    else if (view === 'top') cam.position.set(0, 185, 0.1);
+    else if (view === 'front') cam.position.set(0, 10, 185);
+    else if (view === 'side') cam.position.set(185, 10, 0);
+    ctrl.update();
   };
 
-  const stickout = Math.min(58, Math.max(28, Number(mfgCfg.chuckStickout || 55) * 0.75));
-  const partLen = Math.max(10, Number(mfgCfg.stockZ || 45));
+  const adjustZoom = (factor) => {
+    const cam = cameraRef.current;
+    if (!cam) return;
+    cam.position.multiplyScalar(factor);
+  };
 
-  const mapPoint3D = (pt) => {
+  // Rebuild 3D Solid Meshes & Toolpath on Every Step
+  useEffect(() => {
+    const group = dynamicGroupRef.current;
+    if (!group) return;
+
+    while (group.children.length > 0) {
+      const obj = group.children[0];
+      if (obj.geometry) obj.geometry.dispose();
+      group.remove(obj);
+    }
+
+    const current = moves[stepIdx] || moves[0];
+    const history = moves.slice(0, stepIdx + 1);
+    const tName = (templateName + ' ' + workSide).toUpperCase();
+
+    const planes = halfCut ? [clipPlaneRef.current] : [];
+
+    // Metallic PBR Materials
+    const chuckMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      metalness: 0.85,
+      roughness: 0.3,
+      clippingPlanes: planes,
+      side: THREE.DoubleSide
+    });
+    const rawStockMat = new THREE.MeshStandardMaterial({
+      color: 0x64748b,
+      metalness: 0.72,
+      roughness: 0.28,
+      clippingPlanes: planes,
+      side: THREE.DoubleSide
+    });
+    const machinedMat = new THREE.MeshStandardMaterial({
+      color: 0x14b8a6,
+      emissive: 0x042f2e,
+      metalness: 0.65,
+      roughness: 0.18,
+      clippingPlanes: planes,
+      side: THREE.DoubleSide
+    });
+    const boreMat = new THREE.MeshStandardMaterial({
+      color: 0x0284c7,
+      metalness: 0.7,
+      roughness: 0.22,
+      clippingPlanes: planes,
+      side: THREE.DoubleSide
+    });
+
     if (domainKey === 'Turning') {
-      const zNorm = ((pt.z || 0) / partLen) * (stickout * 0.85);
-      const rad = ((pt.x || 0) / Math.max(20, Number(mfgCfg.stockX || 50))) * 32;
-      if (isVTL) {
-        return project3D(rad, 0, stickout / 2 + zNorm);
+      const rawOD = Number(mfgCfg.stockX || 50);
+      const partLen = Math.max(10, Number(mfgCfg.stockZ || 45));
+      const stickout = Math.min(72, Math.max(36, Number(mfgCfg.chuckStickout || 65) * 0.85));
+      const activeOD = current.curOD ?? rawOD;
+      const activeID = current.curID ?? (workSide === 'ID' ? Number(mfgCfg.rawIdDia || 20) : 0);
+      const cutRatio = Math.min(1, Math.max(0, (current.cutZ || 0) / partLen));
+      const cutLen = cutRatio * (stickout * 0.85);
+      const uncutLen = Math.max(0.5, stickout - cutLen);
+
+      const rawRad = 28;
+      const machRad = Math.max(8, (activeOD / Math.max(10, rawOD)) * rawRad);
+      const boreRad = activeID > 0 ? Math.min(machRad - 2, Math.max(4, (activeID / Math.max(10, rawOD)) * rawRad)) : 0;
+
+      const rootGroup = new THREE.Group();
+      // For Horizontal Lathe: rotate cylinder axis to X (-X = Chuck, +X = Face)
+      // For VTL: keep cylinder axis along Y (-Y = Bottom Table, +Y = Top Face)
+      if (!isVTL) {
+        rootGroup.rotation.z = -Math.PI / 2;
       }
-      return project3D(stickout / 2 + zNorm, 0, rad);
-    }
-    return project3D(pt.x || 0, pt.y || 0, pt.z || 0);
-  };
 
-  const handlePointerDown = (e) => setDragStart({ x: e.clientX, y: e.clientY, yaw, pitch });
-  const handlePointerMove = (e) => {
-    if (!dragStart) return;
-    setYaw(dragStart.yaw + (e.clientX - dragStart.x) * 0.6);
-    setPitch(Math.max(0, Math.min(90, dragStart.pitch + (e.clientY - dragStart.y) * 0.5)));
-  };
-  const handlePointerUp = () => setDragStart(null);
-  const handleWheel = (e) => {
-    e.preventDefault();
-    setZoom((z) => Math.max(0.5, Math.min(2.4, Number((z - e.deltaY * 0.001).toFixed(2)))));
-  };
+      // 1. 3-Jaw Chuck Body + 3 Jaws
+      const chuckGeo = new THREE.CylinderGeometry(rawRad + 12, rawRad + 12, 22, 40);
+      const chuckMesh = new THREE.Mesh(chuckGeo, chuckMat);
+      chuckMesh.position.y = -stickout / 2 - 11;
+      rootGroup.add(chuckMesh);
 
-  const getStroke = (m) => {
-    if (m.rapid || m.passType === 'rapid') return '#f43f5e';
-    if (m.passType === 'finish') return '#38bdf8';
-    if (m.passType === 'chamfer') return '#f59e0b';
-    return '#10b981';
-  };
-
-  const polyStr = (pts) => pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-
-  const renderSolidCylinder = (radius, axisStart, axisEnd, fillBody, fillCap, strokeCol, steps = 28) => {
-    const startAngle = 0;
-    const endAngle = halfCut ? Math.PI : Math.PI * 2;
-    const sRing = [];
-    const eRing = [];
-    for (let i = 0; i <= steps; i++) {
-      const ang = startAngle + (i / steps) * (endAngle - startAngle);
-      const c = Math.cos(ang) * radius;
-      const s = Math.sin(ang) * radius;
-      if (isVTL) {
-        sRing.push(project3D(c, s, axisStart));
-        eRing.push(project3D(c, s, axisEnd));
-      } else {
-        sRing.push(project3D(axisStart, s, c));
-        eRing.push(project3D(axisEnd, s, c));
+      for (let j = 0; j < 3; j++) {
+        const ang = (j * Math.PI * 2) / 3;
+        const jawGeo = new THREE.BoxGeometry(8, 12, 14);
+        const jawMesh = new THREE.Mesh(jawGeo, rawStockMat);
+        jawMesh.position.set(Math.cos(ang) * (rawRad + 3), -stickout / 2 + 4, Math.sin(ang) * (rawRad + 3));
+        jawMesh.rotation.y = -ang;
+        rootGroup.add(jawMesh);
       }
-    }
-    return (
-      <g>
-        {sRing.map((p, i) => {
-          if (i === sRing.length - 1) return null;
-          const quad = [p, sRing[i + 1], eRing[i + 1], eRing[i]];
-          return (
-            <polygon
-              key={i}
-              points={polyStr(quad)}
-              fill={fillBody}
-              fillOpacity="0.92"
-              stroke={strokeCol}
-              strokeWidth="0.3"
-            />
-          );
-        })}
-        <polygon points={polyStr(eRing)} fill={fillCap} fillOpacity="0.95" stroke={strokeCol} strokeWidth="1.4" />
-      </g>
-    );
-  };
 
+      // 2. Uncut Raw Stock Portion
+      const rawGeo = new THREE.CylinderGeometry(rawRad, rawRad, uncutLen, 48);
+      const rawMesh = new THREE.Mesh(rawGeo, rawStockMat);
+      rawMesh.position.y = -stickout / 2 + uncutLen / 2;
+      rootGroup.add(rawMesh);
+
+      // 3. Machined Reduced OD Portion (Glowing Teal Metallic Finish)
+      if (cutLen > 0.4) {
+        const machGeo = new THREE.CylinderGeometry(machRad, machRad, cutLen, 48);
+        const machMesh = new THREE.Mesh(machGeo, machinedMat);
+        machMesh.position.y = stickout / 2 - cutLen / 2;
+        rootGroup.add(machMesh);
+      }
+
+      // 4. Inner Bore Sleeve (Visible in Half-Cut & Front View)
+      if (boreRad > 1) {
+        const boreDepth = Math.max(6, cutLen);
+        const boreGeo = new THREE.CylinderGeometry(boreRad, boreRad, boreDepth + 0.4, 36, 1, true);
+        const boreMesh = new THREE.Mesh(boreGeo, boreMat);
+        boreMesh.position.y = stickout / 2 - boreDepth / 2;
+        rootGroup.add(boreMesh);
+      }
+
+      group.add(rootGroup);
+
+      // Map Tool & Toolpath Coordinates
+      const mapTurnVec = (pt) => {
+        const zNorm = ((pt.z || 0) / partLen) * (stickout * 0.85);
+        const rad = ((pt.x || 0) / Math.max(10, rawOD)) * rawRad;
+        if (isVTL) {
+          return new THREE.Vector3(rad, stickout / 2 + zNorm, 0);
+        }
+        return new THREE.Vector3(stickout / 2 + zNorm, rad, 0);
+      };
+
+      // 3D Toolpath Lines
+      for (let i = 1; i < history.length; i++) {
+        const p1 = mapTurnVec(history[i - 1]);
+        const p2 = mapTurnVec(history[i]);
+        const col = history[i].rapid ? 0xf43f5e : history[i].passType === 'finish' ? 0x38bdf8 : 0x10b981;
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+        const lineMat = new THREE.LineBasicMaterial({ color: col });
+        group.add(new THREE.Line(lineGeo, lineMat));
+      }
+
+      // 3D Cutting Tool Holder + Carbide Insert
+      const tip = mapTurnVec(current);
+      const toolGroup = new THREE.Group();
+      const shankGeo = new THREE.BoxGeometry(8, 34, 8);
+      const shankMesh = new THREE.Mesh(shankGeo, new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8, roughness: 0.3 }));
+      shankMesh.position.set(isVTL ? 14 : 6, isVTL ? 14 : 18, 0);
+      if (isVTL) shankMesh.rotation.z = -0.5;
+      toolGroup.add(shankMesh);
+
+      const insertGeo = new THREE.ConeGeometry(4.5, 9, 4);
+      const insertMesh = new THREE.Mesh(insertGeo, new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0x78350f, metalness: 0.5, roughness: 0.2 }));
+      insertMesh.rotation.z = isVTL ? Math.PI / 2 : Math.PI;
+      insertMesh.position.set(isVTL ? 4 : 0, isVTL ? 0 : 4, 0);
+      toolGroup.add(insertMesh);
+
+      toolGroup.position.copy(tip);
+      group.add(toolGroup);
+    } else {
+      // MILLING 3D SOLID WORKPIECE BLOCK
+      const blkW = Math.min(96, Number(mfgCfg.stockX || 100) * 0.85);
+      const blkD = Math.min(76, Number(mfgCfg.stockY || 80) * 0.85);
+      const blkH = Math.min(34, Math.max(16, Number(mfgCfg.stockZ || 30) * 0.85));
+      const cutD = Math.min(blkH - 3, (current.cutDepth || 0) * 0.95);
+
+      const stockGeo = new THREE.BoxGeometry(blkW, blkH, blkD);
+      const stockMesh = new THREE.Mesh(stockGeo, rawStockMat);
+      stockMesh.position.y = -blkH / 2;
+      group.add(stockMesh);
+
+      // Machined Pocket Cavity or Spigot Boss in 3D
+      if (cutD > 0.5) {
+        if (tName.includes('CIRCULAR POCKET') || operation === 'Pocket Milling') {
+          const rad = current.cutRad || 22;
+          const cavGeo = new THREE.CylinderGeometry(rad, rad, cutD + 0.4, 40);
+          const cavMesh = new THREE.Mesh(cavGeo, machinedMat);
+          cavMesh.position.y = -cutD / 2 + 0.1;
+          group.add(cavMesh);
+        } else if (tName.includes('RECTANGULAR POCKET')) {
+          const w = (current.cutW || 26) * 2;
+          const d = (current.cutH || 16) * 2;
+          const cavGeo = new THREE.BoxGeometry(w, cutD + 0.4, d);
+          const cavMesh = new THREE.Mesh(cavGeo, machinedMat);
+          cavMesh.position.y = -cutD / 2 + 0.1;
+          group.add(cavMesh);
+        } else if (tName.includes('CIRCULAR SPIGOT') || operation === 'Spigot Milling') {
+          const bossGeo = new THREE.CylinderGeometry(20, 20, cutD + 0.5, 40);
+          const bossMesh = new THREE.Mesh(bossGeo, machinedMat);
+          bossMesh.position.y = cutD / 2;
+          group.add(bossMesh);
+        } else if (tName.includes('RECTANGULAR SPIGOT')) {
+          const bossGeo = new THREE.BoxGeometry(44, cutD + 0.5, 28);
+          const bossMesh = new THREE.Mesh(bossGeo, machinedMat);
+          bossMesh.position.y = cutD / 2;
+          group.add(bossMesh);
+        }
+      }
+
+      const mapMillVec = (pt) => new THREE.Vector3(pt.x || 0, pt.z || 0, -(pt.y || 0));
+
+      for (let i = 1; i < history.length; i++) {
+        const p1 = mapMillVec(history[i - 1]);
+        const p2 = mapMillVec(history[i]);
+        const col = history[i].rapid ? 0xf43f5e : history[i].passType === 'finish' ? 0x38bdf8 : history[i].passType === 'chamfer' ? 0xf59e0b : 0x10b981;
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+        group.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: col })));
+      }
+
+      // 3D Solid Carbide Endmill Cutter
+      const tip = mapMillVec(current);
+      const cutterRad = Math.max(3, Number(mfgCfg.toolDia || 12) * 0.45);
+      const fluteLen = Math.max(18, Number(mfgCfg.toolLength || 35) * 0.65);
+
+      const cutterGroup = new THREE.Group();
+      const fluteGeo = new THREE.CylinderGeometry(cutterRad, cutterRad, fluteLen, 24);
+      const fluteMesh = new THREE.Mesh(fluteGeo, new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.75, roughness: 0.2 }));
+      fluteMesh.position.y = fluteLen / 2;
+      cutterGroup.add(fluteMesh);
+
+      const holderGeo = new THREE.CylinderGeometry(cutterRad * 1.6, cutterRad * 1.3, 18, 24);
+      const holderMesh = new THREE.Mesh(holderGeo, chuckMat);
+      holderMesh.position.y = fluteLen + 9;
+      cutterGroup.add(holderMesh);
+
+      cutterGroup.position.copy(tip);
+      group.add(cutterGroup);
+    }
+  }, [moves, stepIdx, domainKey, isVTL, workSide, operation, templateName, mfgCfg, halfCut]);
+
+  const current = moves[stepIdx] || moves[0];
   const rawOD = Number(mfgCfg.stockX || 50);
   const activeOD = current.curOD ?? rawOD;
   const activeID = current.curID ?? (workSide === 'ID' ? Number(mfgCfg.rawIdDia || 20) : 0);
-  const cutRatio = Math.min(1, Math.max(0, (current.cutZ || 0) / partLen));
-  const cutVisualLen = cutRatio * (stickout * 0.85);
-
-  const rawBarRad = 32;
-  const machinedBarRad = Math.max(8, (activeOD / Math.max(10, rawOD)) * rawBarRad);
-  const activeBoreRad = activeID > 0 ? Math.min(machinedBarRad - 3, Math.max(4, (activeID / Math.max(10, rawOD)) * rawBarRad)) : 0;
-
-  const halfX = Math.min(48, Number(mfgCfg.stockX || 100) / 2.2);
-  const halfY = Math.min(38, Number(mfgCfg.stockY || 80) / 2.2);
-  const stockH = Math.min(26, Number(mfgCfg.stockZ || 30) * 0.8);
-  const dynamicCutDepth = Math.min(stockH - 2, (current.cutDepth || 0) * 0.9);
-  const yFront = halfCut ? 0 : -halfY;
-  const yBack = halfY;
-
-  const topCorners = [
-    project3D(-halfX, yFront, 0),
-    project3D(halfX, yFront, 0),
-    project3D(halfX, yBack, 0),
-    project3D(-halfX, yBack, 0)
-  ];
-  const btmCorners = [
-    project3D(-halfX, yFront, -stockH),
-    project3D(halfX, yFront, -stockH),
-    project3D(halfX, yBack, -stockH),
-    project3D(-halfX, yBack, -stockH)
-  ];
-
-  const toolTip = mapPoint3D(current);
-  const toolTop = domainKey === 'Turning'
-    ? (isVTL
-      ? project3D(((current.x || 0) / Math.max(20, rawOD)) * 32 + 22, 0, stickout / 2 + ((current.z || 0) / partLen) * (stickout * 0.85) + 22)
-      : project3D(stickout / 2 + ((current.z || 0) / partLen) * (stickout * 0.85) + 16, 0, ((current.x || 0) / Math.max(20, rawOD)) * 32 + 26))
-    : project3D(current.x || 0, current.y || 0, (current.z || 0) + 26);
-
-  const cutterDia = Number(mfgCfg.toolDia || 12);
-  const cutterRadPx = Math.max(5, Math.min(16, cutterDia * 0.65 * zoom));
 
   return (
     <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-full min-h-[600px]">
-      {/* Header + Playback & Multi-Speed Controls */}
+      {/* Header + Playback & Speed Selector */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Box className="w-4 h-4" />
-          <span>3D {isVTL ? 'VTL' : domainKey} Step-by-Step Sim</span>
+          <span>3D CAD/CAM WebGL Simulator ({isVTL ? 'VTL' : domainKey})</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -436,7 +617,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
             value={speed}
             onChange={(e) => setSpeed(Number(e.target.value))}
             className="px-1.5 py-1 rounded-lg bg-slate-900 text-[11px] font-bold text-amber-300 border border-slate-700 outline-none"
-            title="Animation Speed"
           >
             {SPEED_OPTIONS.map((sp) => (
               <option key={sp} value={sp}>{sp}x</option>
@@ -445,13 +625,13 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         </div>
       </div>
 
-      {/* 3D View Angle, Zoom & Half-Cut Toolbar */}
+      {/* Camera Views, Zoom & True WebGL Half-Cut Toolbar */}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-semibold">
         <div className="flex items-center gap-1">
-          <button type="button" onClick={() => { setYaw(-28); setPitch(64); }} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700">3D Iso</button>
-          <button type="button" onClick={() => { setYaw(0); setPitch(0); }} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700">Top</button>
-          <button type="button" onClick={() => { setYaw(0); setPitch(88); }} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700">Front</button>
-          <button type="button" onClick={() => { setYaw(-90); setPitch(88); }} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700">Side</button>
+          <button type="button" onClick={() => setCameraView('iso')} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700">3D Iso</button>
+          <button type="button" onClick={() => setCameraView('top')} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700">Top</button>
+          <button type="button" onClick={() => setCameraView('front')} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700">Front</button>
+          <button type="button" onClick={() => setCameraView('side')} className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700">Side</button>
         </div>
 
         <div className="flex items-center gap-1">
@@ -460,237 +640,35 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
             onClick={() => setHalfCut(!halfCut)}
             className={`px-2 py-1 rounded flex items-center gap-1 border ${halfCut ? 'bg-amber-500/25 text-amber-300 border-amber-500/60' : 'bg-slate-900 text-slate-300 border-slate-700'}`}
           >
-            <Scissors className="w-3 h-3" /> ½ Cut
+            <Scissors className="w-3 h-3" /> ½ Section
           </button>
-          <button type="button" onClick={() => setZoom((z) => Math.min(2.4, Number((z + 0.2).toFixed(2))))} className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"><ZoomIn className="w-3.5 h-3.5" /></button>
-          <button type="button" onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.2).toFixed(2))))} className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"><ZoomOut className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={() => adjustZoom(0.82)} className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700" title="Zoom In"><ZoomIn className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={() => adjustZoom(1.22)} className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700" title="Zoom Out"><ZoomOut className="w-3.5 h-3.5" /></button>
         </div>
       </div>
 
-      {/* Interactive 3D Solid Viewport */}
-      <div
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
-        onWheel={handleWheel}
-        className="my-2 bg-[#050914] border border-slate-800 rounded-xl overflow-hidden flex items-center justify-center relative cursor-grab active:cursor-grabbing select-none"
-      >
-        <svg viewBox="0 0 380 320" className="w-full h-[340px]">
-          <defs>
-            <pattern id="grid3d" width="24" height="24" patternUnits="userSpaceOnUse">
-              <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#1e293b" strokeWidth="0.5" />
-            </pattern>
-          </defs>
-          <rect width="380" height="320" fill="url(#grid3d)" />
+      {/* True WebGL 3D Canvas Container */}
+      <div className="my-2 bg-[#060b16] border border-slate-800 rounded-xl overflow-hidden relative">
+        <div ref={mountRef} className="w-full h-[350px] cursor-grab active:cursor-grabbing" />
 
-          {domainKey === 'Turning' ? (
-            <>
-              {renderSolidCylinder(rawBarRad + 11, -stickout / 2 - 20, -stickout / 2, '#1e293b', '#334155', '#64748b', 24)}
-              {renderSolidCylinder(
-                rawBarRad,
-                -stickout / 2,
-                Math.max(-stickout / 2, stickout / 2 - cutVisualLen),
-                '#475569',
-                '#64748b',
-                '#94a3b8',
-                28
-              )}
-              {cutVisualLen > 0.5 &&
-                renderSolidCylinder(
-                  machinedBarRad,
-                  Math.max(-stickout / 2, stickout / 2 - cutVisualLen),
-                  stickout / 2,
-                  '#0d9488',
-                  '#14b8a6',
-                  '#5eead4',
-                  28
-                )}
-              {activeBoreRad > 1 &&
-                renderSolidCylinder(
-                  activeBoreRad,
-                  Math.max(-stickout / 2, stickout / 2 - Math.max(4, cutVisualLen)),
-                  stickout / 2 + 0.3,
-                  '#0369a1',
-                  '#050914',
-                  '#38bdf8',
-                  24
-                )}
-              {halfCut && (
-                <polygon
-                  points={polyStr(
-                    isVTL
-                      ? [
-                          project3D(-rawBarRad, 0, -stickout / 2),
-                          project3D(rawBarRad, 0, -stickout / 2),
-                          project3D(rawBarRad, 0, stickout / 2 - cutVisualLen),
-                          project3D(machinedBarRad, 0, stickout / 2 - cutVisualLen),
-                          project3D(machinedBarRad, 0, stickout / 2),
-                          project3D(-machinedBarRad, 0, stickout / 2),
-                          project3D(-machinedBarRad, 0, stickout / 2 - cutVisualLen),
-                          project3D(-rawBarRad, 0, stickout / 2 - cutVisualLen)
-                        ]
-                      : [
-                          project3D(-stickout / 2, 0, -rawBarRad),
-                          project3D(stickout / 2 - cutVisualLen, 0, -rawBarRad),
-                          project3D(stickout / 2 - cutVisualLen, 0, -machinedBarRad),
-                          project3D(stickout / 2, 0, -machinedBarRad),
-                          project3D(stickout / 2, 0, machinedBarRad),
-                          project3D(stickout / 2 - cutVisualLen, 0, machinedBarRad),
-                          project3D(stickout / 2 - cutVisualLen, 0, rawBarRad),
-                          project3D(-stickout / 2, 0, rawBarRad)
-                        ]
-                  )}
-                  fill="#f59e0b"
-                  fillOpacity="0.22"
-                  stroke="#f59e0b"
-                  strokeWidth="1.6"
-                />
-              )}
-            </>
-          ) : (
-            <>
-              <polygon points={polyStr(btmCorners)} fill="#1e293b" fillOpacity="0.95" stroke="#475569" strokeWidth="1" />
-              <polygon points={polyStr([topCorners[2], topCorners[3], btmCorners[3], btmCorners[2]])} fill="#334155" fillOpacity="0.92" stroke="#64748b" strokeWidth="1" />
-              <polygon points={polyStr([topCorners[0], topCorners[3], btmCorners[3], btmCorners[0]])} fill="#334155" fillOpacity="0.9" stroke="#64748b" strokeWidth="1" />
-              <polygon points={polyStr([topCorners[1], topCorners[2], btmCorners[2], btmCorners[1]])} fill="#1e293b" fillOpacity="0.95" stroke="#64748b" strokeWidth="1" />
-              <polygon points={polyStr(topCorners)} fill="#475569" fillOpacity="0.88" stroke="#94a3b8" strokeWidth="1.4" />
-
-              {dynamicCutDepth > 0.5 && (tName.includes('CIRCULAR POCKET') || operation === 'Pocket Milling') && (
-                <polygon
-                  points={polyStr(
-                    circlePoints(current.cutRad || 22, 28)
-                      .filter((p) => !halfCut || p.y >= 0)
-                      .map((p) => project3D(p.x, p.y, -dynamicCutDepth))
-                  )}
-                  fill="#0d9488"
-                  fillOpacity="0.85"
-                  stroke="#5eead4"
-                  strokeWidth="1.5"
-                />
-              )}
-
-              {dynamicCutDepth > 0.5 && tName.includes('RECTANGULAR POCKET') && (
-                <polygon
-                  points={polyStr(
-                    rectPoints(current.cutW || 26, current.cutH || 16).map((p) =>
-                      project3D(p.x, halfCut && p.y < 0 ? 0 : p.y, -dynamicCutDepth)
-                    )
-                  )}
-                  fill="#0d9488"
-                  fillOpacity="0.85"
-                  stroke="#5eead4"
-                  strokeWidth="1.5"
-                />
-              )}
-
-              {dynamicCutDepth > 0.5 && (tName.includes('CIRCULAR SPIGOT') || operation === 'Spigot Milling') && (
-                <>
-                  <polygon
-                    points={polyStr([
-                      project3D(-halfX + 4, yFront + (halfCut ? 0 : 4), -dynamicCutDepth),
-                      project3D(halfX - 4, yFront + (halfCut ? 0 : 4), -dynamicCutDepth),
-                      project3D(halfX - 4, yBack - 4, -dynamicCutDepth),
-                      project3D(-halfX + 4, yBack - 4, -dynamicCutDepth)
-                    ])}
-                    fill="#0d9488"
-                    fillOpacity="0.7"
-                    stroke="#5eead4"
-                    strokeWidth="1"
-                  />
-                  <polygon
-                    points={polyStr(
-                      circlePoints(20, 28)
-                        .filter((p) => !halfCut || p.y >= 0)
-                        .map((p) => project3D(p.x, p.y, 0))
-                    )}
-                    fill="#64748b"
-                    fillOpacity="0.95"
-                    stroke="#f8fafc"
-                    strokeWidth="1.6"
-                  />
-                </>
-              )}
-
-              <polygon
-                points={polyStr([topCorners[0], topCorners[1], btmCorners[1], btmCorners[0]])}
-                fill={halfCut ? '#f59e0b' : '#334155'}
-                fillOpacity={halfCut ? '0.24' : '0.88'}
-                stroke={halfCut ? '#f59e0b' : '#94a3b8'}
-                strokeWidth={halfCut ? '1.6' : '1.2'}
-              />
-
-              {halfCut && dynamicCutDepth > 0.5 && (
-                <polygon
-                  points={polyStr([
-                    project3D(-22, 0, 0),
-                    project3D(22, 0, 0),
-                    project3D(22, 0, -dynamicCutDepth),
-                    project3D(-22, 0, -dynamicCutDepth)
-                  ])}
-                  fill="#050914"
-                  stroke="#5eead4"
-                  strokeWidth="1.6"
-                />
-              )}
-            </>
-          )}
-
-          {history.map((m, idx) => {
-            if (idx === 0) return null;
-            const p1 = mapPoint3D(history[idx - 1]);
-            const p2 = mapPoint3D(m);
-            return (
-              <line
-                key={idx}
-                x1={p1.x}
-                y1={p1.y}
-                x2={p2.x}
-                y2={p2.y}
-                stroke={getStroke(m)}
-                strokeWidth={m.rapid ? '1.1' : '2.4'}
-                strokeDasharray={m.rapid ? '3,3' : '0'}
-              />
-            );
-          })}
-
-          {domainKey === 'Turning' ? (
-            <g>
-              <line x1={toolTip.x} y1={toolTip.y} x2={toolTop.x} y2={toolTop.y} stroke="#475569" strokeWidth="7" strokeLinecap="round" />
-              <polygon
-                points={`${toolTip.x},${toolTip.y} ${toolTip.x + 8},${toolTip.y - 10} ${toolTip.x + 13},${toolTip.y - 3}`}
-                fill="#f59e0b"
-                stroke="#fef08a"
-                strokeWidth="1"
-              />
-              {!current.rapid && <circle cx={toolTip.x} cy={toolTip.y} r="3.5" fill="#34d399" />}
-            </g>
-          ) : (
-            <g>
-              <line x1={toolTip.x} y1={toolTip.y} x2={toolTop.x} y2={toolTop.y} stroke="#cbd5e1" strokeWidth={cutterRadPx * 1.1} strokeLinecap="round" strokeOpacity="0.55" />
-              <line x1={toolTip.x} y1={toolTip.y} x2={toolTop.x} y2={toolTop.y} stroke="#f59e0b" strokeWidth={Math.max(2, cutterRadPx * 0.45)} strokeLinecap="round" />
-              <circle cx={toolTip.x} cy={toolTip.y} r={Math.max(3.5, cutterRadPx * 0.45)} fill="#f59e0b" stroke="#fef08a" strokeWidth="1" />
-            </g>
-          )}
-        </svg>
-
-        <div className="absolute top-2 left-2.5 right-2.5 flex justify-between items-center text-[10px] font-mono bg-slate-950/85 px-2.5 py-1 rounded border border-slate-800">
-          <span className="text-slate-300">
+        <div className="absolute top-2 left-2.5 right-2.5 flex justify-between items-center text-[10px] font-mono bg-slate-950/85 px-2.5 py-1 rounded border border-slate-800 pointer-events-none">
+          <span className="text-slate-200">
             {domainKey === 'Turning'
               ? `Live OD: Ø${activeOD.toFixed(1)}mm ${activeID > 0 ? `| ID: Ø${activeID.toFixed(1)}mm` : ''}`
-              : `Cut Depth: ${dynamicCutDepth.toFixed(1)} / ${mfgCfg.featureDepth || 10}mm`}
+              : `Cut Depth: ${(current.cutDepth || 0).toFixed(1)} / ${mfgCfg.featureDepth || 10}mm`}
           </span>
-          <span className="text-amber-300">Speed: {speed}x</span>
+          <span className="text-amber-300">Drag: Rotate • Scroll: Zoom</span>
         </div>
 
-        <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-2.5 text-[10px] font-mono bg-slate-950/90 px-2.5 py-1 rounded-md border border-slate-800">
+        <div className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-2.5 text-[10px] font-mono bg-slate-950/90 px-2.5 py-1 rounded-md border border-slate-800 pointer-events-none">
           <span className="flex items-center gap-1 text-slate-300"><span className="w-2.5 h-2.5 rounded-sm bg-slate-500"></span> Raw Stock</span>
-          <span className="flex items-center gap-1 text-teal-300"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500"></span> Machined Area</span>
+          <span className="flex items-center gap-1 text-teal-300"><span className="w-2.5 h-2.5 rounded-sm bg-teal-500"></span> Machined</span>
           <span className="flex items-center gap-1 text-rose-400"><span className="w-2.5 h-0.5 bg-rose-400"></span> Rapid</span>
           <span className="flex items-center gap-1 text-sky-400"><span className="w-2.5 h-0.5 bg-sky-400"></span> Finish</span>
         </div>
       </div>
 
+      {/* Live Coordinate Readout */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 space-y-1.5">
         <div className="flex items-center justify-between text-xs font-mono">
           <span className="text-cyan-300 font-bold">
