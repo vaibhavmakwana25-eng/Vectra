@@ -516,7 +516,7 @@ const applyNoseCompToCode = (rawCode, compVal) => {
   if (!mode) return out;
 
   out = out.split('| G42)').join('| ' + mode + ')').split('| G41)').join('| ' + mode + ')').split('| G40)').join('| ' + mode + ')');
-  out = out.split('G42 G01').join('G01').split('G41 G01').join('G01');
+  out = out.split('G42 G01').join('G01').split('G41 G01').join('G01').split('G42 G1').join('G1').split('G41 G1').join('G1');
 
   const cancelTag = 'G40 (CANCEL TOOL NOSE COMPENSATION)';
   while (out.includes(cancelTag)) {
@@ -527,7 +527,7 @@ const applyNoseCompToCode = (rawCode, compVal) => {
     return out.split('G42').join('G40').split('G41').join('G40');
   }
 
-  const targets = ['G01 Z', 'G01 X', 'G01 C', 'g01 z', 'g01 x', 'g01 c'];
+  const targets = ['G01 Z', 'G01 X', 'G01 C', 'G1 Z', 'G1 X', 'G1 C', 'g01 z', 'g01 x', 'g01 c'];
   let bestIdx = -1;
   let matchedTarget = '';
   for (const t of targets) {
@@ -539,9 +539,10 @@ const applyNoseCompToCode = (rawCode, compVal) => {
   }
 
   if (bestIdx !== -1) {
-    const gWord = matchedTarget.slice(0, 3).toUpperCase();
-    const rest = matchedTarget.slice(3);
-    out = out.slice(0, bestIdx) + mode + ' ' + gWord + rest + out.slice(bestIdx + matchedTarget.length);
+    const parts = matchedTarget.trim().split(/\s+/);
+    const gWord = parts[0].toUpperCase();
+    const axisWord = parts[1].toUpperCase();
+    out = out.slice(0, bestIdx) + mode + ' ' + gWord + ' ' + axisWord + out.slice(bestIdx + matchedTarget.length);
   }
 
   const m30Idx = out.lastIndexOf('M30');
