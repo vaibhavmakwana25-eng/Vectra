@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Play, Pause, RotateCcw, Box, ZoomIn, ZoomOut, Scissors } from 'lucide-react';
 
-function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
+function buildStepMoves(code, domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
   const tName = (templateName + ' ' + workSide).toUpperCase();
   const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
@@ -22,11 +22,10 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
     const isID = workSide === 'ID';
     const isFace = workSide === 'Face' || operation === 'Facing';
 
-    // High-resolution 60-slice continuous SolidCAM-style stock profile
     const zSlices = 60;
     const odProfile = new Array(zSlices + 1).fill(rawOD);
     const idProfile = new Array(zSlices + 1).fill(isID ? Math.max(8, rawID) : 0);
-    const passTagProfile = new Array(zSlices + 1).fill('raw'); // 'raw' | 'rough' | 'finish' | 'chamfer'
+    const passTagProfile = new Array(zSlices + 1).fill('raw');
 
     const snapshot = (zVal, curDia, rapid, passType, gcode) => {
       const distFromFace = Math.max(0, Math.min(partLen, -zVal));
@@ -175,7 +174,6 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       }
       snapshot(18, rawID - 2, true, 'rapid', `G40 G28 U0. W0. M05`);
     } else {
-      // OD TURNING: Smooth 15-step Z feed per pass + permanent step retention
       let activeOD = rawOD;
       const targetZ = Math.max(10, partLen - lenStock);
       if (stage.includes('Rough')) {
@@ -309,8 +307,6 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
 
-// SolidCAM Solid Verify Multi-Zone LatheGeometry:
-// Renders Raw Steel Stock, Rough-Turned Blue Zone, and Finish-Turned Emerald Zone seamlessly!
 function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, rawRad, stickout, planes) {
   const workGroup = new THREE.Group();
   const n = odProfile.length - 1;
@@ -342,7 +338,6 @@ function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, 
     side: THREE.DoubleSide
   });
 
-  // Group contiguous slices with the same diameter & passTag into smooth cylinders/rings
   let startIdx = 0;
   while (startIdx < n) {
     let endIdx = startIdx + 1;
@@ -370,7 +365,6 @@ function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, 
     const mat = curTag === 'finish' ? finishMat : curTag === 'rough' || curTag === 'chamfer' ? roughMat : rawMat;
 
     if (innerR > 0.5) {
-      // Hollow Bore Ring Segment using ExtrudeGeometry for true solid wall thickness!
       const shape = new THREE.Shape();
       shape.absarc(0, 0, outerR, 0, Math.PI * 2, false);
       const hole = new THREE.Path();
@@ -399,76 +393,64 @@ function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, 
   return workGroup;
 }
 
-// Non-Colliding Operation-Specific Tooling:
-// - VTL: 12-Station Horizontal Crown Turret high & clear on +X/+Y with Vertical Tool Holder reaching tip (0,0,0)
-// - Turning: 8-Station Radial Drum Turret clear on +X/+Y with Tool Holder reaching tip (0,0,0)
-// - OD Operations: Insert tip faces INWARD toward Job (-X)
-// - ID Operations: Insert tip faces OUTWARD toward Bore Wall / Turret (+X)
-// Builds authentic ISO Carbide Insert 3D Geometry with exact Nose Corner Radius (CNMG, TNMG, WNMG, DNMG, VNMG, CCMT, MGMN)
-function buildIsoInsertMesh(insertType = 'CNMG', noseRadius = '0.8', operation = 'Turning', insertMat, holderMat) {
+// Builds exact ISO Carbide Insert 3D Geometry with Corner Nose Radius, Center Pin & Top Clamp
+function buildIsoInsertMesh(insertType = 'CNMG', noseRadius = '0.8', operation = 'Turning', insertMat, darkMat) {
   const insGroup = new THREE.Group();
   const code = (insertType || 'CNMG').toUpperCase();
   const rVal = Math.max(0.15, Math.min(1.4, Number(noseRadius) || 0.8));
-  const fillet = 0.25 + rVal * 0.75; // Visual corner radius scaling
+  const fillet = 0.25 + rVal * 0.85;
 
   if (operation === 'Grooving' || operation === 'Parting' || code.includes('MGMN')) {
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(2.0, 5.5, 4.2), insertMat);
-    insGroup.add(blade);
+    const bladeTip = new THREE.Mesh(new THREE.BoxGeometry(2.2, 4.8, 3.8), insertMat);
+    insGroup.add(bladeTip);
     return insGroup;
   }
 
-  // Build 2D polygon vertices with rounded corners via quadraticCurveTo
   let pts = [];
   if (operation === 'Threading') {
-    // 60-degree sharp V-thread laydown insert
     pts = [
-      new THREE.Vector2(0, -3.4),
-      new THREE.Vector2(3.0, 2.2),
-      new THREE.Vector2(-3.0, 2.2)
+      new THREE.Vector2(0, -3.5),
+      new THREE.Vector2(3.1, 2.2),
+      new THREE.Vector2(-3.1, 2.2)
     ];
   } else if (code.startsWith('TNMG')) {
-    // 60-degree Equilateral Triangle (TNMG)
-    const rad = 3.6;
+    const rad = 3.7;
     for (let i = 0; i < 3; i++) {
       const ang = -Math.PI / 2 + (i * Math.PI * 2) / 3;
       pts.push(new THREE.Vector2(Math.cos(ang) * rad, Math.sin(ang) * rad));
     }
   } else if (code.startsWith('WNMG')) {
-    // 80-degree Trigon (WNMG - 6 vertices alternating outer nose and inner flank)
-    const rOut = 3.6;
-    const rIn = 2.85;
+    const rOut = 3.7;
+    const rIn = 2.9;
     for (let i = 0; i < 6; i++) {
       const ang = -Math.PI / 2 + (i * Math.PI) / 3;
       const r = i % 2 === 0 ? rOut : rIn;
       pts.push(new THREE.Vector2(Math.cos(ang) * r, Math.sin(ang) * r));
     }
   } else if (code.startsWith('VNMG')) {
-    // 35-degree Sharp Diamond (VNMG)
     pts = [
-      new THREE.Vector2(0, -4.4),
+      new THREE.Vector2(0, -4.5),
       new THREE.Vector2(1.45, 0),
-      new THREE.Vector2(0, 4.4),
+      new THREE.Vector2(0, 4.5),
       new THREE.Vector2(-1.45, 0)
     ];
   } else if (code.startsWith('DNMG')) {
-    // 55-degree Medium Diamond (DNMG)
     pts = [
-      new THREE.Vector2(0, -4.0),
-      new THREE.Vector2(2.1, 0),
-      new THREE.Vector2(0, 4.0),
-      new THREE.Vector2(-2.1, 0)
+      new THREE.Vector2(0, -4.1),
+      new THREE.Vector2(2.15, 0),
+      new THREE.Vector2(0, 4.1),
+      new THREE.Vector2(-2.15, 0)
     ];
   } else {
-    // 80-degree Rhombic Diamond (CNMG / CCMT)
+    // CNMG / CCMT 80-degree Rhombic Diamond
     pts = [
-      new THREE.Vector2(0, -3.6),
-      new THREE.Vector2(3.0, 0),
-      new THREE.Vector2(0, 3.6),
-      new THREE.Vector2(-3.0, 0)
+      new THREE.Vector2(0, -3.7),
+      new THREE.Vector2(3.1, 0),
+      new THREE.Vector2(0, 3.7),
+      new THREE.Vector2(-3.1, 0)
     ];
   }
 
-  // Construct smooth rounded-corner 2D shape with exact corner radius fillet
   const shape = new THREE.Shape();
   const count = pts.length;
   for (let i = 0; i < count; i++) {
@@ -490,7 +472,6 @@ function buildIsoInsertMesh(insertType = 'CNMG', noseRadius = '0.8', operation =
   }
   shape.closePath();
 
-  // Center Clamping Pin Hole (authentic indexable insert look)
   const hole = new THREE.Path();
   hole.absarc(0, 0, 0.85, 0, Math.PI * 2, true);
   shape.holes.push(hole);
@@ -498,7 +479,7 @@ function buildIsoInsertMesh(insertType = 'CNMG', noseRadius = '0.8', operation =
   const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
     depth: 1.5,
     bevelEnabled: true,
-    bevelThickness: 0.15,
+    bevelThickness: 0.14,
     bevelSize: 0.12,
     bevelSegments: 2,
     curveSegments: 16
@@ -508,130 +489,156 @@ function buildIsoInsertMesh(insertType = 'CNMG', noseRadius = '0.8', operation =
   const insertMesh = new THREE.Mesh(extrudeGeo, insertMat);
   insGroup.add(insertMesh);
 
-  // Dark Clamping Pin in center
-  const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.8, 16), holderMat);
+  // Center Allen Screw / Lock Pin
+  const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 1.9, 16), darkMat);
   pin.rotation.x = Math.PI / 2;
   insGroup.add(pin);
 
   return insGroup;
 }
 
-function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, holderMat, insertMat, insertType = 'CNMG', noseRadius = '0.8') {
+// Realistic Machined Tool Holder + Direct Turret Disc Station Mounting (Matches User Catalog Photos!)
+function createOperationTooling(operation, isID, isVTL, discMat, cyanMat, steelShankMat, darkClampMat, insertMat, insertType = 'CNMG', noseRadius = '0.8') {
   const assembly = new THREE.Group();
 
-  const turretBody = new THREE.Group();
+  const isGroove = operation === 'Grooving' || operation === 'Parting';
+  const isInternal = isID || operation === 'Boring' || operation === 'Drilling' || operation === 'Tapping';
+
   if (isVTL) {
-    // 12-Station Horizontal Crown Ring Turret (VTL)
-    const outerRing = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, 6.5, 36, 1, true), ringMat);
-    const topRing = new THREE.Mesh(new THREE.RingGeometry(10.5, 16, 36), ringMat);
-    topRing.rotation.x = -Math.PI / 2;
-    topRing.position.y = 3.25;
-    turretBody.add(outerRing, topRing);
+    // VTL: 12-Station Horizontal Crown Turret Disc at top-right, with Vertical Tool Shank clamped directly into Station Block!
+    const turretCenter = new THREE.Vector3(isInternal ? 14 : 16, 26, 0);
 
+    // Horizontal Crown Disc
+    const outerRing = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, 6.5, 36), discMat);
+    outerRing.position.copy(turretCenter);
+    assembly.add(outerRing);
+
+    const cyanBand = new THREE.Mesh(new THREE.CylinderGeometry(16.3, 16.3, 2.2, 36), cyanMat);
+    cyanBand.position.copy(turretCenter);
+    assembly.add(cyanBand);
+
+    // 12 BMT Station Blocks around Crown Circumference (Leftmost station at angle PI sits directly at x = turretCenter.x - 16 = 0!)
     for (let i = 0; i < 12; i++) {
-      const ang = (i / 12) * Math.PI * 2;
-      const st = new THREE.Mesh(new THREE.BoxGeometry(3.8, 7, 3.8), pocketMat);
-      st.position.set(Math.cos(ang) * 13.2, 0, Math.sin(ang) * 13.2);
-      st.rotation.y = -ang;
-      turretBody.add(st);
-    }
-    turretBody.position.set(isID ? 20 : 24, 28, 0);
-  } else {
-    // Jyoti Slant-Bed CNC Lathe Turret: Octagonal Disc facing Chuck (-X), mounted on right-rear Slant Carriage (+X, +Y, -Z)
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 10, 8), ringMat);
-    drum.rotation.z = Math.PI / 2;
-    drum.position.set(28, 14, -8);
-    turretBody.add(drum);
-
-    // Front Turret Cap & Cyan Accent Ring facing spindle
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 11.2, 16), pocketMat);
-    cap.rotation.z = Math.PI / 2;
-    cap.position.set(28, 14, -8);
-    turretBody.add(cap);
-
-    // 8 Radial Tool Holder Blocks around Turret Circumference
-    for (let i = 0; i < 8; i++) {
-      const ang = (i / 8) * Math.PI * 2;
-      const pk = new THREE.Mesh(new THREE.BoxGeometry(8, 3.8, 3.8), holderMat);
-      pk.position.set(26, 14 + Math.cos(ang) * 14.5, -8 + Math.sin(ang) * 14.5);
-      pk.rotation.x = ang;
-      turretBody.add(pk);
+      const ang = Math.PI + (i / 12) * Math.PI * 2;
+      const bmt = new THREE.Mesh(new THREE.BoxGeometry(5.5, 7.5, 5.5), darkClampMat);
+      bmt.position.set(
+        turretCenter.x + Math.cos(ang) * 16,
+        turretCenter.y,
+        turretCenter.z + Math.sin(ang) * 16
+      );
+      bmt.rotation.y = -ang;
+      assembly.add(bmt);
     }
 
-    // Slant-Bed Cross-Slide Carriage behind Turret
-    const carriage = new THREE.Mesh(new THREE.BoxGeometry(16, 18, 18), ringMat);
-    carriage.position.set(38, 16, -10);
-    turretBody.add(carriage);
-  }
-  assembly.add(turretBody);
+    // Active Vertical Tool Holder emerging straight DOWN from the active BMT Station Block (x=0, y=26 -> tip y=0)
+    if (isInternal) {
+      // Cylindrical Steel Boring Bar clamped in VTL vertical station
+      const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 25, 24), steelShankMat);
+      bar.position.set(0, 13.5, 0);
+      assembly.add(bar);
 
-  const toolPart = new THREE.Group();
-
-  if (isID || operation === 'Boring' || operation === 'Drilling' || operation === 'Tapping') {
-    // Horizontal Boring Bar / Drill extending along -X into bore, connected to Turret
-    const barLen = 24;
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, barLen, 20), holderMat);
-    bar.rotation.z = Math.PI / 2;
-    bar.position.set(barLen / 2, 0, 0);
-    toolPart.add(bar);
-
-    if (isVTL) {
-      const riser = new THREE.Mesh(new THREE.BoxGeometry(4.5, 24, 4.5), holderMat);
-      riser.position.set(barLen, 12, 0);
-      toolPart.add(riser);
+      // ID Insert at bottom tip pointing OUTWARD (+X toward bore wall / turret side)
+      const ins = buildIsoInsertMesh(insertType, noseRadius, operation, insertMat, darkClampMat);
+      ins.rotation.z = Math.PI / 2;
+      ins.position.set(1.8, 2.2, 0);
+      assembly.add(ins);
     } else {
-      const bracket = new THREE.Mesh(new THREE.BoxGeometry(6, 15, 9), holderMat);
-      bracket.position.set(barLen, 7, -4);
-      toolPart.add(bracket);
+      // Machined Silver-Grey Steel Shank emerging straight down from VTL BMT Station Block
+      const shankW = isGroove ? 2.2 : 4.8;
+      const shank = new THREE.Mesh(new THREE.BoxGeometry(shankW, 24, 5.2), steelShankMat);
+      shank.position.set(1.8, 14, 0);
+      assembly.add(shank);
+
+      // Top Clamp & Allen Bolt above Insert Pocket
+      const clamp = new THREE.Mesh(new THREE.BoxGeometry(3.6, 4.5, 3.8), darkClampMat);
+      clamp.position.set(1.6, 5.8, 0.8);
+      assembly.add(clamp);
+
+      // OD Insert seated in lower-left pocket, pointing INWARD (-X onto Job OD)
+      const ins = buildIsoInsertMesh(insertType, noseRadius, operation, insertMat, darkClampMat);
+      ins.position.set(-0.6, 2.6, 0.6);
+      assembly.add(ins);
     }
-
-    // ID Insert points OUTWARD (+Y in Lathe / +X in VTL toward bore wall)
-    const idInsert = new THREE.Mesh(new THREE.ConeGeometry(2.5, 5.2, 4), insertMat);
-    if (isVTL) {
-      idInsert.rotation.z = -Math.PI / 2;
-      idInsert.position.set(2.0, 0, 0);
-    } else {
-      idInsert.position.set(1.5, 2.0, 0);
-    }
-    toolPart.add(idInsert);
-  } else if (isVTL) {
-    // VTL Vertical Tool Post coming down from Crown Turret
-    const vPost = new THREE.Mesh(
-      new THREE.BoxGeometry(operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.5, 24, 4.5),
-      holderMat
-    );
-    vPost.position.set(3.5, 12, 0);
-    toolPart.add(vPost);
-
-    const hArm = new THREE.Mesh(new THREE.BoxGeometry(20, 4.5, 4.5), holderMat);
-    hArm.position.set(13.5, 24, 0);
-    toolPart.add(hArm);
-
-    const ins = buildIsoInsertMesh(insertType, noseRadius, operation, insertMat, holderMat);
-    ins.position.set(-1.6, 2.8, 0);
-    toolPart.add(ins);
   } else {
-    // Horizontal Turning Lathe: VERTICAL Square Shank Tool Holder coming straight DOWN from Turret onto OD!
-    const shankW = operation === 'Grooving' || operation === 'Parting' ? 2.0 : 4.6;
-    const vShank = new THREE.Mesh(new THREE.BoxGeometry(shankW, 20, 4.6), holderMat);
-    vShank.position.set(0, 10, 0);
-    toolPart.add(vShank);
+    // Horizontal Turning Lathe (Jyoti DX/AX Slant-Bed):
+    // 8-Station BMT Turret Disc faces Spindle (-X), and Tool Shank mounts DIRECTLY into the bottom BMT Station Block!
+    if (isInternal) {
+      // ID Boring Bar / Drill extending horizontally along -X directly from Turret Station Block
+      const turretCenter = new THREE.Vector3(36, 0, 0);
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 9, 24), discMat);
+      disc.rotation.z = Math.PI / 2;
+      disc.position.copy(turretCenter);
+      assembly.add(disc);
 
-    // Turret Base Clamp connecting Vertical Tool Holder to Right-Rear Octagonal Turret
-    const clampBlock = new THREE.Mesh(new THREE.BoxGeometry(22, 6.5, 8), holderMat);
-    clampBlock.position.set(11, 18, -3);
-    toolPart.add(clampBlock);
+      const cyanRing = new THREE.Mesh(new THREE.CylinderGeometry(14.3, 14.3, 2.4, 24), cyanMat);
+      cyanRing.rotation.z = Math.PI / 2;
+      cyanRing.position.set(32, 0, 0);
+      assembly.add(cyanRing);
 
-    const turretAdapter = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), holderMat);
-    turretAdapter.position.set(24, 16, -6);
-    toolPart.add(turretAdapter);
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2;
+        const bmt = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 5), darkClampMat);
+        bmt.position.set(35, Math.cos(ang) * 14.5, Math.sin(ang) * 14.5);
+        bmt.rotation.x = ang;
+        assembly.add(bmt);
+      }
 
-    const customIns = buildIsoInsertMesh(insertType, noseRadius, operation, insertMat, holderMat);
-    customIns.position.set(-0.6, 2.8, 0);
-    toolPart.add(customIns);
+      // Cylindrical Boring Bar extending straight along -X from center/station to tip (0,0,0)
+      const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 32, 24), steelShankMat);
+      bar.rotation.z = Math.PI / 2;
+      bar.position.set(16, 0, 0);
+      assembly.add(bar);
+
+      // ID Insert at tip pointing UP/OUTWARD (+Y toward bore wall / turret side)
+      const ins = buildIsoInsertMesh(insertType, noseRadius, operation, insertMat, darkClampMat);
+      ins.rotation.z = Math.PI;
+      ins.position.set(1.8, 1.8, 0);
+      assembly.add(ins);
+    } else {
+      // OD Turning / Threading / Grooving:
+      // Turret Disc sits directly above OD cutting zone (y = 32), so bottom BMT Station Block (y = 18) holds Vertical Shank directly!
+      const turretCenter = new THREE.Vector3(6, 33, -2);
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 10, 24), discMat);
+      disc.rotation.z = Math.PI / 2;
+      disc.position.copy(turretCenter);
+      assembly.add(disc);
+
+      const cyanRing = new THREE.Mesh(new THREE.CylinderGeometry(14.3, 14.3, 2.5, 24), cyanMat);
+      cyanRing.rotation.z = Math.PI / 2;
+      cyanRing.position.set(2, 33, -2);
+      assembly.add(cyanRing);
+
+      // 8 Radial BMT Tool-Clamping Blocks around Turret Circumference (bottom station at ang=PI is at x=6, y=18.5!)
+      for (let i = 0; i < 8; i++) {
+        const ang = Math.PI + (i / 8) * Math.PI * 2;
+        const bmt = new THREE.Mesh(new THREE.BoxGeometry(8.5, 5.2, 5.5), darkClampMat);
+        bmt.position.set(
+          turretCenter.x,
+          turretCenter.y + Math.cos(ang) * 14.5,
+          turretCenter.z + Math.sin(ang) * 14.5
+        );
+        bmt.rotation.x = ang;
+        assembly.add(bmt);
+      }
+
+      // Machined Silver-Grey Steel Shank clamped directly inside the Bottom BMT Station Block (no floating L-bar!)
+      const shankW = isGroove ? 2.2 : 5.0;
+      const shank = new THREE.Mesh(new THREE.BoxGeometry(shankW, 18, 5.5), steelShankMat);
+      shank.position.set(2.2, 11, 0);
+      assembly.add(shank);
+
+      // Top Clamp Finger & Screw holding Insert in Pocket
+      const clamp = new THREE.Mesh(new THREE.BoxGeometry(3.8, 4.2, 3.6), darkClampMat);
+      clamp.position.set(1.8, 5.2, 1.2);
+      assembly.add(clamp);
+
+      // Golden ISO Carbide Insert seated in Pocket at bottom tip, touching OD cutting line!
+      const ins = buildIsoInsertMesh(insertType, noseRadius, operation, insertMat, darkClampMat);
+      ins.position.set(-0.2, 2.5, 1.2);
+      assembly.add(ins);
+    }
   }
 
-  assembly.add(toolPart);
   return assembly;
 }
 
@@ -676,7 +683,6 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     return () => clearInterval(timer);
   }, [playing, moves, speed]);
 
-  // SolidCAM Solid Verify Light Studio Environment
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
@@ -685,7 +691,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     const height = 385;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#cbd5e1'); // Clean SolidCAM Studio Light-Slate Theme
+    scene.background = new THREE.Color('#cbd5e1');
 
     const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 1000);
     camera.position.set(145, 108, 162);
@@ -705,7 +711,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     controls.target.set(6, 6, 0);
     controlsRef.current = controls;
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.35);
     keyLight.position.set(150, 220, 170);
     scene.add(keyLight);
@@ -802,17 +808,14 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       const stickout = Math.min(64, Math.max(38, Number(mfgCfg.chuckStickout || 65) * 0.78));
       const rawRad = 24;
 
-      // Outer orientation wrapper: Horizontal (-X to +X) for Turning Lathe, Vertical (-Y to +Y) for VTL
       const orientWrapper = new THREE.Group();
       if (!isVTL) {
         orientWrapper.rotation.z = -Math.PI / 2;
       }
 
-      // Inner spindleGroup spins strictly around its own local Y centerline!
       const spindleGroup = new THREE.Group();
       spindleGroupRef.current = spindleGroup;
 
-      // 1. Chuck Body + Jaws (4-Jaw Heavy Table for VTL, 3-Jaw Chuck for Turning)
       const chuckRad = isVTL ? rawRad + 15 : rawRad + 10;
       const chuckH = isVTL ? 12 : 18;
       const chuckMesh = new THREE.Mesh(new THREE.CylinderGeometry(chuckRad, chuckRad, chuckH, 48), chuckMat);
@@ -828,7 +831,6 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
         spindleGroup.add(jawMesh);
       }
 
-      // 2. SolidCAM Solid Verify Multi-Zone Stepped Workpiece
       const odProf = current.odProfile || [rawOD];
       const idProf = current.idProfile || [0];
       const tagProf = current.passTagProfile || ['raw'];
@@ -847,7 +849,6 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
         return new THREE.Vector3(stickout / 2 + zNorm, rad, 0);
       };
 
-      // Toolpath Trajectory Lines
       for (let i = 1; i < history.length; i++) {
         const p1 = mapTurnVec(history[i - 1]);
         const p2 = mapTurnVec(history[i]);
@@ -855,14 +856,25 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
         group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: col })));
       }
 
-      // Non-Colliding Turret & Operation-Specific Insert
       const tip = mapTurnVec(current);
-      const ringMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.78, roughness: 0.26 });
-      const pocketMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.55, roughness: 0.22 });
-      const holderMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.22 });
-      const insertMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xb45309, emissiveIntensity: 0.35, metalness: 0.65, roughness: 0.18 });
+      const discMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.78, roughness: 0.28 });
+      const cyanMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.55, roughness: 0.22 });
+      const steelShankMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.88, roughness: 0.2 });
+      const darkClampMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8, roughness: 0.3 });
+      const insertMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xb45309, emissiveIntensity: 0.35, metalness: 0.65, roughness: 0.16 });
 
-      const toolObj = createOperationTooling(operation, workSide === 'ID', isVTL, ringMat, pocketMat, holderMat, insertMat, mfgCfg.insertType, mfgCfg.noseRadius);
+      const toolObj = createOperationTooling(
+        operation,
+        workSide === 'ID',
+        isVTL,
+        discMat,
+        cyanMat,
+        steelShankMat,
+        darkClampMat,
+        insertMat,
+        mfgCfg.insertType,
+        mfgCfg.noseRadius
+      );
       toolObj.position.copy(tip);
       group.add(toolObj);
     } else {
@@ -955,7 +967,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
           <Box className="w-4 h-4" />
-          <span>SolidCAM 3D Verify ({isVTL ? 'VTL Rotary Table' : domainKey})</span>
+          <span>SolidCAM 3D Verify ({isVTL ? 'VTL Crown Turret' : domainKey})</span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -1007,7 +1019,6 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
         </div>
       </div>
 
-      {/* SolidCAM Solid Verify Light Studio Viewport */}
       <div className="my-2 bg-slate-300 border border-slate-400 rounded-xl overflow-hidden relative shadow-inner">
         <div ref={mountRef} className="w-full h-[385px] cursor-grab active:cursor-grabbing" />
 
@@ -1024,7 +1035,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
           <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-400"></span> Raw Stock</span>
           <span className="flex items-center gap-1 text-sky-300"><span className="w-2.5 h-2.5 rounded-sm bg-sky-600"></span> Rough Cut</span>
           <span className="flex items-center gap-1 text-emerald-300"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span> Finish Cut</span>
-          <span className="flex items-center gap-1 text-amber-300"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Insert Tip</span>
+          <span className="flex items-center gap-1 text-amber-300"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> {mfgCfg.insertType || 'CNMG'} R{mfgCfg.noseRadius || '0.8'}</span>
         </div>
       </div>
 
@@ -1046,7 +1057,3 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     </div>
   );
 }
-
-
-
-
