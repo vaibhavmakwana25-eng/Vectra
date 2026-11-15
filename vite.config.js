@@ -19,7 +19,7 @@ export default defineConfig({
         display: 'standalone',
         icons: [
           {
-            src: 'https://cdn-icons-png.flaticon.com/512/900/900797.png',
+            src: '/vectra-icon.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
