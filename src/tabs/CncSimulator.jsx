@@ -5,7 +5,7 @@ import { Play, Pause, RotateCcw, Box, ZoomIn, ZoomOut, Scissors } from 'lucide-r
 
 function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
-  const tName = (templateName + ' ' + workSide).toUpperCase();
+  const tName = (templateName + ' ' + workSide + ' ' + operation).toUpperCase();
   const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
   const diaStock = Number(mfgCfg.diaFinishStock ?? 0.5);
   const lenStock = Number(mfgCfg.lenFinishStock ?? 0.2);
@@ -143,7 +143,6 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       const startX = isID ? finOD - 4 : rawOD + 2;
       snapshot(cutZ, startX, true, 'rapid', `G00 X${startX.toFixed(1)} Z${cutZ}`);
       const gIdx = Math.min(zSlices - 3, Math.max(2, Math.round((Math.abs(cutZ) / partLen) * zSlices)));
-      // Create a crisp 4-slice wide groove channel so it is unmistakably visible in 3D!
       for (let s = 1; s <= 10; s++) {
         const curX = startX + ((targetX - startX) * s) / 10;
         for (let w = -1; w <= 2; w++) {
@@ -224,12 +223,13 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       snapshot(18, rawOD + 8, true, 'rapid', `G40 G28 U0. W0. M05`);
     }
   } else {
+    // MILLING DOMAIN: Dedicated toolpaths for Face Milling, Pocket, Spigot, Contour, Slot, and Drilling/Tapping
     const isFaceMill = tName.includes('FACE') || operation === 'Face Milling';
     const isContourMill = tName.includes('CONTOUR') || tName.includes('PROFILE') || operation === 'Contour Milling';
     const isSlotMill = tName.includes('SLOT') || operation === 'Slot Milling';
-    const isCircPocket = tName.includes('CIRCULAR POCKET') || operation === 'Pocket Milling';
+    const isCircPocket = tName.includes('CIRCULAR POCKET') || (operation === 'Pocket Milling' && !tName.includes('RECTANGULAR'));
     const isRectPocket = tName.includes('RECTANGULAR POCKET');
-    const isCircSpigot = tName.includes('CIRCULAR SPIGOT') || operation === 'Spigot Milling';
+    const isCircSpigot = tName.includes('CIRCULAR SPIGOT') || (operation === 'Spigot Milling' && !tName.includes('RECTANGULAR'));
     const isRectSpigot = tName.includes('RECTANGULAR SPIGOT');
 
     const circlePts = (r, steps = 20) => {
@@ -307,27 +307,26 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
       moves.push({ x: 0, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: maxDepthSoFar, gcode: 'G40 G00 Z25.0 M05' });
     } else if (isFaceMill) {
-      // Zig-Zag Face Milling Passes across entire top surface
+      // Zig-Zag Face Milling Passes across entire top surface (NO 5 holes!)
       const faceZ = -Math.max(1.5, Math.min(6, depth));
       const yRows = [-24, -12, 0, 12, 24];
-      moves.push({ x: -52, y: -24, z: 8, rapid: true, passType: 'rapid', cutDepth: 0, faceProg: 0, gcode: 'G43 H01 G00 X-52.0 Y-24.0 Z8.0' });
-      moves.push({ x: -52, y: -24, z: faceZ, rapid: false, passType: 'rough', cutDepth: Math.abs(faceZ), faceProg: 0.05, gcode: `G01 Z${faceZ.toFixed(1)} F350.0` });
+      moves.push({ x: -50, y: -24, z: 8, rapid: true, passType: 'rapid', cutDepth: 0, faceProg: 0, gcode: 'G43 H01 G00 X-50.0 Y-24.0 Z8.0' });
+      moves.push({ x: -50, y: -24, z: faceZ, rapid: false, passType: 'rough', cutDepth: Math.abs(faceZ), faceProg: 0.04, gcode: `G01 Z${faceZ.toFixed(1)} F350.0` });
       yRows.forEach((ry, idx) => {
         const dir = idx % 2 === 0 ? 1 : -1;
-        const xStart = dir === 1 ? -46 : 46;
-        const xEnd = dir === 1 ? 46 : -46;
+        const xStart = dir === 1 ? -44 : 44;
+        const xEnd = dir === 1 ? 44 : -44;
         if (idx > 0) {
           moves.push({ x: xStart, y: ry, z: faceZ, rapid: false, passType: 'rough', cutDepth: Math.abs(faceZ), faceProg: idx / yRows.length, gcode: `G01 Y${ry.toFixed(1)} F450.0` });
         }
-        for (let s = 1; s <= 4; s++) {
-          const curX = xStart + ((xEnd - xStart) * s) / 4;
-          const prog = (idx + s / 4) / yRows.length;
+        for (let s = 1; s <= 5; s++) {
+          const curX = xStart + ((xEnd - xStart) * s) / 5;
+          const prog = (idx + s / 5) / yRows.length;
           moves.push({ x: curX, y: ry, z: faceZ, rapid: false, passType: prog > 0.8 ? 'finish' : 'rough', cutDepth: Math.abs(faceZ), faceProg: prog, gcode: `G01 X${curX.toFixed(1)} Y${ry.toFixed(1)} F650.0` });
         }
       });
-      moves.push({ x: 52, y: 24, z: 25, rapid: true, passType: 'rapid', cutDepth: Math.abs(faceZ), faceProg: 1, gcode: 'G00 Z25.0 M05 (FACE COMPLETE)' });
+      moves.push({ x: 50, y: 24, z: 25, rapid: true, passType: 'rapid', cutDepth: Math.abs(faceZ), faceProg: 1, gcode: 'G00 Z25.0 M05 (FACE MILL COMPLETE)' });
     } else if (isContourMill) {
-      // Outer Contour / Profile Milling around block perimeter
       const cZ = -Math.max(4, depth);
       const pts = rectPts(36, 26);
       moves.push({ x: -42, y: -26, z: 8, rapid: true, passType: 'rapid', cutDepth: 0, gcode: 'G43 H01 G00 X-42.0 Y-26.0 Z8.0' });
@@ -337,16 +336,16 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       });
       moves.push({ x: 0, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: Math.abs(cZ), cutW: 36, cutH: 26, gcode: 'G40 G00 Z25.0 M05' });
     } else if (isSlotMill) {
-      // Straight Center Slot Milling
       const sZ = -Math.max(4, depth);
       moves.push({ x: -30, y: 0, z: 8, rapid: true, passType: 'rapid', cutDepth: 0, gcode: 'G43 H01 G00 X-30.0 Y0.0 Z8.0' });
       moves.push({ x: -30, y: 0, z: sZ, rapid: false, passType: 'rough', cutDepth: Math.abs(sZ), slotLen: 0, gcode: `G01 Z${sZ.toFixed(1)} F200.0` });
-      for (let s = 1; s <= 10; s++) {
-        const curX = -30 + (60 * s) / 10;
-        moves.push({ x: curX, y: 0, z: sZ, rapid: false, passType: s >= 8 ? 'finish' : 'rough', cutDepth: Math.abs(sZ), slotLen: (60 * s) / 10, gcode: `G01 X${curX.toFixed(1)} Y0.0 F350.0` });
+      for (let s = 1; s <= 12; s++) {
+        const curX = -30 + (60 * s) / 12;
+        moves.push({ x: curX, y: 0, z: sZ, rapid: false, passType: s >= 9 ? 'finish' : 'rough', cutDepth: Math.abs(sZ), slotLen: (60 * s) / 12, gcode: `G01 X${curX.toFixed(1)} Y0.0 F350.0` });
       }
       moves.push({ x: 30, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: Math.abs(sZ), slotLen: 60, gcode: 'G00 Z25.0 M05' });
     } else {
+      // Drilling / Tapping / Boring / Reaming
       const holes = [
         { x: -24, y: -16 },
         { x: 24, y: -16 },
@@ -367,10 +366,6 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
 
-// Renders Real 3D Workpiece with:
-// - Progressive Rough (Blue) & Finish (Green) stepped OD / ID / Groove channels
-// - True 3D Helical/Annular Thread Ridges on OD or ID when Threading/Tapping is active
-// - High-contrast dark bore interior so ID holes are unmistakable even without ½ Section
 function buildSolidVerifyWorkpiece(current, operation, isID, rawOD, rawRad, partLen, stickout, planes) {
   const workGroup = new THREE.Group();
   const odProfile = current.odProfile || [rawOD];
@@ -460,7 +455,6 @@ function buildSolidVerifyWorkpiece(current, operation, isID, rawOD, rawRad, part
       mesh.position.y = yTop;
       workGroup.add(mesh);
 
-      // Dark inner bore lining so ID cavity is super clear from outside as well
       const boreWall = new THREE.Mesh(
         new THREE.CylinderGeometry(innerR - 0.1, innerR - 0.1, segH, 36, 1, true),
         new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6, side: THREE.BackSide, clippingPlanes: planes })
@@ -477,7 +471,6 @@ function buildSolidVerifyWorkpiece(current, operation, isID, rawOD, rawRad, part
     startIdx = endIdx;
   }
 
-  // Real 3D Thread Ridges (V-Rings along machined thread length) for Threading / Tapping
   const tProgZ = current.threadProgressZ || 0;
   const tDepthRatio = current.threadDepthRatio || 0;
   if ((operation === 'Threading' || operation === 'Tapping') && tProgZ > 0.5 && tDepthRatio > 0) {
@@ -875,7 +868,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
 
     const current = moves[stepIdx] || moves[0];
     const history = moves.slice(0, stepIdx + 1);
-    const tName = (templateName + ' ' + workSide).toUpperCase();
+    const tName = (templateName + ' ' + workSide + ' ' + operation).toUpperCase();
     const planes = halfCut ? [clipPlaneRef.current] : [];
 
     const chuckMat = new THREE.MeshStandardMaterial({
@@ -974,7 +967,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       toolObj.position.copy(tip);
       group.add(toolObj);
     } else {
-      // SolidWorks CAM Level 3D Milling Simulation (True Recessed Pocket Cavity, Spigot Island, Base Plate & Helical Fluted End-Mill)
+      // SolidWorks CAM Level 3D Milling Simulation
       spindleGroupRef.current = null;
       const blkW = Math.min(96, Number(mfgCfg.stockX || 100) * 0.85);
       const blkD = Math.min(76, Number(mfgCfg.stockY || 80) * 0.85);
@@ -983,7 +976,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       const cutD = Math.min(maxFeatD, (current.cutDepth || 0) * 0.95);
       const isFinPass = current.passType === 'finish' || current.passType === 'chamfer';
 
-      // SolidWorks CAM Palette: Copper/Bronze Top Skin, Dark Steel Walls, Emerald/Olive Machined Floor, Brown Fixture Base
       const baseFixtureMat = new THREE.MeshStandardMaterial({
         color: 0x9a3412,
         metalness: 0.45,
@@ -1020,7 +1012,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         side: THREE.DoubleSide
       });
 
-      // 1. Fixture Base Plate under Stock (SolidWorks CAM style)
       const basePlate = new THREE.Mesh(new THREE.BoxGeometry(blkW + 8, 4, blkD + 8), baseFixtureMat);
       basePlate.position.y = -blkH - 2;
       group.add(basePlate);
@@ -1033,7 +1024,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
       const isCircShape = !tName.includes('RECTANGULAR') && !isContourOp;
 
       if (isPocketOp && cutD > 0.3) {
-        // TRUE 3D RECESSED POCKET CAVITY (ExtrudeGeometry with Hole so you see deep vertical walls & machined floor!)
         const outerShape = new THREE.Shape();
         outerShape.moveTo(-blkW / 2, -blkD / 2);
         outerShape.lineTo(blkW / 2, -blkD / 2);
@@ -1056,7 +1046,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         }
         outerShape.holes.push(holePath);
 
-        // Upper hollowed wall ring of depth `cutD`
         const upperWallGeo = new THREE.ExtrudeGeometry(outerShape, {
           depth: cutD,
           bevelEnabled: false,
@@ -1067,20 +1056,17 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         upperWallMesh.position.y = 0;
         group.add(upperWallMesh);
 
-        // Top Copper Skin Ring around Pocket opening
         const topSkinGeo = new THREE.ShapeGeometry(outerShape, 40);
         topSkinGeo.rotateX(-Math.PI / 2);
         const topSkinMesh = new THREE.Mesh(topSkinGeo, topCopperMat);
         topSkinMesh.position.y = 0.05;
         group.add(topSkinMesh);
 
-        // Lower solid block below Pocket floor (`blkH - cutD`)
         const lowerH = Math.max(2, blkH - cutD);
         const lowerBlock = new THREE.Mesh(new THREE.BoxGeometry(blkW, lowerH, blkD), stockWallMat);
         lowerBlock.position.y = -cutD - lowerH / 2;
         group.add(lowerBlock);
 
-        // Highlighted Machined Pocket Floor at `y = -cutD + 0.08`
         if (isCircShape) {
           const r = current.cutRad || 22;
           const floorDisk = new THREE.Mesh(new THREE.CircleGeometry(r, 40), cavityFloorMat);
@@ -1100,19 +1086,16 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           group.add(floorRect);
         }
       } else if (isSpigotOp && cutD > 0.3) {
-        // TRUE 3D RAISED SPIGOT ISLAND (Outer material removed down to `-cutD`, central boss stands proud!)
         const lowerH = Math.max(2, blkH - cutD);
         const lowerBlock = new THREE.Mesh(new THREE.BoxGeometry(blkW, lowerH, blkD), stockWallMat);
         lowerBlock.position.y = -cutD - lowerH / 2;
         group.add(lowerBlock);
 
-        // Machined Step Floor at `y = -cutD + 0.06`
         const stepFloor = new THREE.Mesh(new THREE.PlaneGeometry(blkW, blkD), cavityFloorMat);
         stepFloor.rotation.x = -Math.PI / 2;
         stepFloor.position.y = -cutD + 0.06;
         group.add(stepFloor);
 
-        // Central Raised Spigot Boss standing up from `-cutD` to `0`
         if (isCircShape) {
           const bossRad = current.cutRad || 20;
           const bossMesh = new THREE.Mesh(new THREE.CylinderGeometry(bossRad, bossRad, cutD, 40), cavityWallMat);
@@ -1136,14 +1119,12 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           group.add(bossTop);
         }
       } else if (isFaceOp) {
-        // Progressive Face Milling: Top Copper Layer gets skimmed away into Shiny Machined Surface!
         const remH = Math.max(8, blkH - cutD);
         const stockMesh = new THREE.Mesh(new THREE.BoxGeometry(blkW, remH, blkD), stockWallMat);
         stockMesh.position.y = -cutD - remH / 2;
         group.add(stockMesh);
 
         const fProg = current.faceProg || 0;
-        // Uncut Copper portion remaining
         if (fProg < 0.98) {
           const uncutD = blkD * (1 - fProg);
           const unCutSkin = new THREE.Mesh(new THREE.PlaneGeometry(blkW, uncutD), topCopperMat);
@@ -1151,7 +1132,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           unCutSkin.position.set(0, 0.04, -(blkD / 2 - uncutD / 2));
           group.add(unCutSkin);
         }
-        // Freshly Face-Milled Machined Surface
         if (fProg > 0.01) {
           const cutDepthZ = blkD * fProg;
           const milledSkin = new THREE.Mesh(new THREE.PlaneGeometry(blkW, cutDepthZ), cavityFloorMat);
@@ -1160,7 +1140,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           group.add(milledSkin);
         }
       } else if (isSlotOp) {
-        // True 3D Recessed Slot Channel across center of block
         const stockMesh = new THREE.Mesh(new THREE.BoxGeometry(blkW, blkH, blkD), stockWallMat);
         stockMesh.position.y = -blkH / 2;
         group.add(stockMesh);
@@ -1178,7 +1157,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           group.add(slotFloor);
         }
       } else {
-        // Standard Solid Block + Copper Top Face (Drilling / Tapping / Boring)
         const stockMesh = new THREE.Mesh(new THREE.BoxGeometry(blkW, blkH, blkD), stockWallMat);
         stockMesh.position.y = -blkH / 2;
         group.add(stockMesh);
@@ -1188,7 +1166,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         topSkin.position.y = 0.05;
         group.add(topSkin);
 
-        // Render drilled holes progressively as tool visits each hole coordinate
         const holeRadius = Math.max(2.2, Number(mfgCfg.drillDia || mfgCfg.tapDia || 10) * 0.35);
         history.forEach((hMove) => {
           if (!hMove.rapid && (hMove.z || 0) < -0.5) {
@@ -1211,7 +1188,6 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         });
       }
 
-      // Toolpath Trajectory Lines
       const mapMillVec = (pt) => new THREE.Vector3(pt.x || 0, pt.z || 0, -(pt.y || 0));
       for (let i = 1; i < history.length; i++) {
         const p1 = mapMillVec(history[i - 1]);
@@ -1220,27 +1196,39 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
         group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: col })));
       }
 
-      // SolidWorks CAM Style Cylindrical End-Mill Cutter (Blue Fluted Cutting Tip + Silver Steel Shank + BT40 Spindle Taper)
       const tip = mapMillVec(current);
       const cutterRad = isFaceOp ? Math.max(7.5, Number(mfgCfg.toolDia || 50) * 0.22) : Math.max(2.6, Number(mfgCfg.toolDia || 12) * 0.42);
-      const fluteLen = Math.max(16, Number(mfgCfg.toolLength || 35) * 0.55);
+      const fluteLen = isFaceOp ? 10 : Math.max(16, Number(mfgCfg.toolLength || 35) * 0.55);
 
       const cutterGroup = new THREE.Group();
       const fluteMesh = new THREE.Mesh(
         new THREE.CylinderGeometry(cutterRad, cutterRad, fluteLen, 28),
-        new THREE.MeshStandardMaterial({ color: 0x0284c7, emissive: 0x0369a1, emissiveIntensity: 0.25, metalness: 0.78, roughness: 0.18 })
+        new THREE.MeshStandardMaterial({ color: isFaceOp ? 0x334155 : 0x0284c7, metalness: 0.78, roughness: 0.2 })
       );
       fluteMesh.position.y = fluteLen / 2;
       cutterGroup.add(fluteMesh);
 
+      if (isFaceOp) {
+        // Golden Indexable Face Mill Inserts around bottom periphery
+        for (let k = 0; k < 6; k++) {
+          const ang = (k / 6) * Math.PI * 2;
+          const ins = new THREE.Mesh(
+            new THREE.BoxGeometry(2.2, 2.6, 2.2),
+            new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.7, roughness: 0.2 })
+          );
+          ins.position.set(Math.cos(ang) * (cutterRad - 0.5), 1.3, Math.sin(ang) * (cutterRad - 0.5));
+          cutterGroup.add(ins);
+        }
+      }
+
       const shankMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(cutterRad * 1.05, cutterRad * 1.05, 18, 28),
+        new THREE.CylinderGeometry(cutterRad * (isFaceOp ? 0.55 : 1.05), cutterRad * (isFaceOp ? 0.55 : 1.05), 18, 28),
         new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.88, roughness: 0.2 })
       );
       shankMesh.position.y = fluteLen + 9;
       cutterGroup.add(shankMesh);
 
-      const holderMesh = new THREE.Mesh(new THREE.CylinderGeometry(cutterRad * 2.2, cutterRad * 1.5, 16, 28), chuckMat);
+      const holderMesh = new THREE.Mesh(new THREE.CylinderGeometry(cutterRad * (isFaceOp ? 1.1 : 2.2), cutterRad * (isFaceOp ? 0.8 : 1.5), 16, 28), chuckMat);
       holderMesh.position.y = fluteLen + 26;
       cutterGroup.add(holderMesh);
 
@@ -1327,7 +1315,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
           <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-400"></span> Raw Stock</span>
           <span className="flex items-center gap-1 text-sky-300"><span className="w-2.5 h-2.5 rounded-sm bg-sky-600"></span> Rough Cut</span>
           <span className="flex items-center gap-1 text-emerald-300"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span> Finish Cut</span>
-          <span className="flex items-center gap-1 text-amber-300"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> {operation === 'Threading' ? '3D Threads' : `${mfgCfg.insertType || 'CNMG'} R${mfgCfg.noseRadius || '0.8'}`}</span>
+          <span className="flex items-center gap-1 text-amber-300"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> {domainKey === 'Milling' ? `${operation} (Ø${mfgCfg.toolDia || 12}mm)` : operation === 'Threading' ? '3D Threads' : `${mfgCfg.insertType || 'CNMG'} R${mfgCfg.noseRadius || '0.8'}`}</span>
         </div>
       </div>
 
@@ -1349,5 +1337,3 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
     </div>
   );
 }
-
-
