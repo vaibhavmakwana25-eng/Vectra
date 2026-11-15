@@ -404,7 +404,119 @@ function buildSolidVerifyWorkpiece(odProfile, idProfile, passTagProfile, rawOD, 
 // - Turning: 8-Station Radial Drum Turret clear on +X/+Y with Tool Holder reaching tip (0,0,0)
 // - OD Operations: Insert tip faces INWARD toward Job (-X)
 // - ID Operations: Insert tip faces OUTWARD toward Bore Wall / Turret (+X)
-function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, holderMat, insertMat) {
+// Builds authentic ISO Carbide Insert 3D Geometry with exact Nose Corner Radius (CNMG, TNMG, WNMG, DNMG, VNMG, CCMT, MGMN)
+function buildIsoInsertMesh(insertType = 'CNMG', noseRadius = '0.8', operation = 'Turning', insertMat, holderMat) {
+  const insGroup = new THREE.Group();
+  const code = (insertType || 'CNMG').toUpperCase();
+  const rVal = Math.max(0.15, Math.min(1.4, Number(noseRadius) || 0.8));
+  const fillet = 0.25 + rVal * 0.75; // Visual corner radius scaling
+
+  if (operation === 'Grooving' || operation === 'Parting' || code.includes('MGMN')) {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(2.0, 5.5, 4.2), insertMat);
+    insGroup.add(blade);
+    return insGroup;
+  }
+
+  // Build 2D polygon vertices with rounded corners via quadraticCurveTo
+  let pts = [];
+  if (operation === 'Threading') {
+    // 60-degree sharp V-thread laydown insert
+    pts = [
+      new THREE.Vector2(0, -3.4),
+      new THREE.Vector2(3.0, 2.2),
+      new THREE.Vector2(-3.0, 2.2)
+    ];
+  } else if (code.startsWith('TNMG')) {
+    // 60-degree Equilateral Triangle (TNMG)
+    const rad = 3.6;
+    for (let i = 0; i < 3; i++) {
+      const ang = -Math.PI / 2 + (i * Math.PI * 2) / 3;
+      pts.push(new THREE.Vector2(Math.cos(ang) * rad, Math.sin(ang) * rad));
+    }
+  } else if (code.startsWith('WNMG')) {
+    // 80-degree Trigon (WNMG - 6 vertices alternating outer nose and inner flank)
+    const rOut = 3.6;
+    const rIn = 2.85;
+    for (let i = 0; i < 6; i++) {
+      const ang = -Math.PI / 2 + (i * Math.PI) / 3;
+      const r = i % 2 === 0 ? rOut : rIn;
+      pts.push(new THREE.Vector2(Math.cos(ang) * r, Math.sin(ang) * r));
+    }
+  } else if (code.startsWith('VNMG')) {
+    // 35-degree Sharp Diamond (VNMG)
+    pts = [
+      new THREE.Vector2(0, -4.4),
+      new THREE.Vector2(1.45, 0),
+      new THREE.Vector2(0, 4.4),
+      new THREE.Vector2(-1.45, 0)
+    ];
+  } else if (code.startsWith('DNMG')) {
+    // 55-degree Medium Diamond (DNMG)
+    pts = [
+      new THREE.Vector2(0, -4.0),
+      new THREE.Vector2(2.1, 0),
+      new THREE.Vector2(0, 4.0),
+      new THREE.Vector2(-2.1, 0)
+    ];
+  } else {
+    // 80-degree Rhombic Diamond (CNMG / CCMT)
+    pts = [
+      new THREE.Vector2(0, -3.6),
+      new THREE.Vector2(3.0, 0),
+      new THREE.Vector2(0, 3.6),
+      new THREE.Vector2(-3.0, 0)
+    ];
+  }
+
+  // Construct smooth rounded-corner 2D shape with exact corner radius fillet
+  const shape = new THREE.Shape();
+  const count = pts.length;
+  for (let i = 0; i < count; i++) {
+    const prev = pts[(i - 1 + count) % count];
+    const curr = pts[i];
+    const next = pts[(i + 1) % count];
+
+    const v1 = new THREE.Vector2().subVectors(prev, curr);
+    const v2 = new THREE.Vector2().subVectors(next, curr);
+    const maxF = Math.min(v1.length() * 0.42, v2.length() * 0.42, fillet);
+
+    const pStart = new THREE.Vector2().copy(curr).addScaledVector(v1.normalize(), maxF);
+    const pEnd = new THREE.Vector2().copy(curr).addScaledVector(v2.normalize(), maxF);
+
+    if (i === 0) shape.moveTo(pStart.x, pStart.y);
+    else shape.lineTo(pStart.x, pStart.y);
+
+    shape.quadraticCurveTo(curr.x, curr.y, pEnd.x, pEnd.y);
+  }
+  shape.closePath();
+
+  // Center Clamping Pin Hole (authentic indexable insert look)
+  const hole = new THREE.Path();
+  hole.absarc(0, 0, 0.85, 0, Math.PI * 2, true);
+  shape.holes.push(hole);
+
+  const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
+    depth: 1.5,
+    bevelEnabled: true,
+    bevelThickness: 0.15,
+    bevelSize: 0.12,
+    bevelSegments: 2,
+    curveSegments: 16
+  });
+  extrudeGeo.center();
+
+  const insertMesh = new THREE.Mesh(extrudeGeo, insertMat);
+  insGroup.add(insertMesh);
+
+  // Dark Clamping Pin in center
+  const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.8, 16), holderMat);
+  pin.rotation.x = Math.PI / 2;
+  insGroup.add(pin);
+
+  return insGroup;
+}
+
+function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, holderMat, insertMat, insertType = 'CNMG', noseRadius = '0.8') {
   const assembly = new THREE.Group();
 
   const turretBody = new THREE.Group();
@@ -495,10 +607,8 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
     hArm.position.set(13.5, 24, 0);
     toolPart.add(hArm);
 
-    const ins = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 2.2, 4), insertMat);
-    ins.rotation.x = Math.PI / 2;
-    ins.rotation.y = Math.PI / 4;
-    ins.position.set(-1.5, 2.0, 0);
+    const ins = buildIsoInsertMesh(insertType, noseRadius, operation, insertMat, holderMat);
+    ins.position.set(-1.6, 2.8, 0);
     toolPart.add(ins);
   } else {
     // Horizontal Turning Lathe: VERTICAL Square Shank Tool Holder coming straight DOWN from Turret onto OD!
@@ -516,25 +626,9 @@ function createOperationTooling(operation, isID, isVTL, ringMat, pocketMat, hold
     turretAdapter.position.set(24, 16, -6);
     toolPart.add(turretAdapter);
 
-    if (operation === 'Threading') {
-      // OD 60-deg Threading Insert at bottom tip of Vertical Holder
-      const odThreadIns = new THREE.Mesh(new THREE.ConeGeometry(3.2, 6.2, 3), insertMat);
-      odThreadIns.rotation.z = Math.PI;
-      odThreadIns.position.set(0, 1.8, 0);
-      toolPart.add(odThreadIns);
-    } else if (operation === 'Grooving' || operation === 'Parting') {
-      // Vertical Grooving / Parting Blade Tip at bottom
-      const odGrooveIns = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5.5, 4.2), insertMat);
-      odGrooveIns.position.set(0, 2.0, 0);
-      toolPart.add(odGrooveIns);
-    } else {
-      // OD CNMG Diamond Insert mounted vertically at bottom tip touching OD cutting line!
-      const odDiamondIns = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.5, 2.0, 4), insertMat);
-      odDiamondIns.rotation.x = Math.PI / 2;
-      odDiamondIns.rotation.y = Math.PI / 4;
-      odDiamondIns.position.set(-0.5, 1.8, 0);
-      toolPart.add(odDiamondIns);
-    }
+    const customIns = buildIsoInsertMesh(insertType, noseRadius, operation, insertMat, holderMat);
+    customIns.position.set(-0.6, 2.8, 0);
+    toolPart.add(customIns);
   }
 
   assembly.add(toolPart);
@@ -768,7 +862,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
       const holderMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.22 });
       const insertMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xb45309, emissiveIntensity: 0.35, metalness: 0.65, roughness: 0.18 });
 
-      const toolObj = createOperationTooling(operation, workSide === 'ID', isVTL, ringMat, pocketMat, holderMat, insertMat);
+      const toolObj = createOperationTooling(operation, workSide === 'ID', isVTL, ringMat, pocketMat, holderMat, insertMat, mfgCfg.insertType, mfgCfg.noseRadius);
       toolObj.position.copy(tip);
       group.add(toolObj);
     } else {
@@ -952,6 +1046,7 @@ export default function CncSimulator({ code, domainKey, machineType, workSide, o
     </div>
   );
 }
+
 
 
 
