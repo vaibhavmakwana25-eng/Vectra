@@ -504,6 +504,55 @@ M30`;
 }
 
 
+
+const applyNoseCompToCode = (rawCode, compVal) => {
+  const str = String(rawCode || '');
+  if (!str) return str;
+  const u = String(compVal || '').toUpperCase();
+  let mode = '';
+  if (u.includes('G41')) mode = 'G41';
+  else if (u.includes('G42')) mode = 'G42';
+  else if (u.includes('G40')) mode = 'G40';
+
+  if (!mode) return str;
+
+  // Update header comment tag if present
+  let out = str.replace(/\|\s*G4[012]\s*\)/g, ' | ' + mode + ')');
+
+  if (mode === 'G40') {
+    return out.replace(/\b(G41|G42)\b/g, 'G40');
+  }
+
+  // Replace existing G41/G42 with chosen mode
+  out = out.replace(/\b(G41|G42)\b/g, mode);
+
+  // If no G41/G42 exists in motion lines, inject active G41/G42 before first G01 cutting move and G40 before retract/M30
+  if (!/\b(G41|G42)\b/.test(out)) {
+    const lines = out.split(/\r?\n/);
+    let applied = false;
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (/^(N\d+\s+)?G0?1\b/.test(t) && /[XZC]/i.test(t)) {
+        lines.splice(i, 0, mode + ' (TOOL NOSE RADIUS COMPENSATION ACTIVE)');
+        applied = true;
+        break;
+      }
+    }
+    if (applied) {
+      for (let j = lines.length - 1; j >= 0; j--) {
+        const t2 = lines[j].trim();
+        if (/^(N\d+\s+)?(G28|G0?0\s+X100|M0?5|M30)\b/.test(t2)) {
+          lines.splice(j, 0, 'G40 (CANCEL TOOL NOSE COMPENSATION)');
+          break;
+        }
+      }
+      out = lines.join('\n');
+    }
+  }
+
+  return out;
+};
+
 const formatTurnMillByController = (rawCode, ctrlName) => {
   const codeStr = String(rawCode || '');
   const u = String(ctrlName || 'Fanuc').toUpperCase();
@@ -583,7 +632,7 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
   const [selectedTemplateIdx, setSelectedTemplateIdx] = useState(0);
   const [title, setTitle] = useState('');
   const [code, setCode] = useState('');
-  const [copied, setCopied] = useState(false);
+const [copied, setCopied] = useState(false);
 
   // Milling Tool States
   const [toolDia, setToolDia] = useState('12');
