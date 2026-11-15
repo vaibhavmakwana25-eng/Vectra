@@ -3,6 +3,7 @@ import { db } from '../db';
 import { FileCode, Share2, Copy, Check, Save, Layers } from 'lucide-react';
 import { JYOTI_MACHINE_CASCADE, CONTROLLERS } from './cncConstants';
 import { CYCLE_TEMPLATES } from './cycleTemplatesData';
+import CncSimulator from './CncSimulator';
 
 const PROGRAM_MODES = [
   'Canned Cycle Program',
@@ -490,13 +491,22 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
             </button>
           </div>
 
-          <textarea
-            rows="28"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            className="w-full min-h-[560px] bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs font-mono text-emerald-300 leading-relaxed focus:border-cyan-500 outline-none"
-            required
-          />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5 items-stretch">
+            <textarea
+              rows="28"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className="w-full min-h-[560px] bg-slate-950 border border-slate-700 rounded-xl p-4 text-xs font-mono text-emerald-300 leading-relaxed focus:border-cyan-500 outline-none"
+              required
+            />
+            <CncSimulator
+              code={code}
+              domainKey={domainKey}
+              workSide={workSide}
+              operation={operation}
+              controller={controller}
+            />
+          </div>
 
           <button
             type="submit"
@@ -550,3 +560,4 @@ export default function ProgramsTab({ programs = [], refreshAllData, shareOnWhat
     </div>
   );
 }
+
