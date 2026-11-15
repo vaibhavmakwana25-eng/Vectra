@@ -61,16 +61,30 @@ const MATERIALS = [
   { name: 'Titanium', vc: 55, feedFactor: 0.55 }
 ];
 
+const TAP_SIZES = [
+  { label: 'M3', dia: 3, defaultPitch: '0.5', pitches: ['0.5', '0.35'] },
+  { label: 'M4', dia: 4, defaultPitch: '0.7', pitches: ['0.7', '0.5'] },
+  { label: 'M5', dia: 5, defaultPitch: '0.8', pitches: ['0.8', '0.5'] },
+  { label: 'M6', dia: 6, defaultPitch: '1.0', pitches: ['1.0', '0.75'] },
+  { label: 'M8', dia: 8, defaultPitch: '1.25', pitches: ['1.25', '1.0', '0.75'] },
+  { label: 'M10', dia: 10, defaultPitch: '1.5', pitches: ['1.5', '1.25', '1.0', '0.75'] },
+  { label: 'M12', dia: 12, defaultPitch: '1.75', pitches: ['1.75', '1.5', '1.25', '1.0'] },
+  { label: 'M14', dia: 14, defaultPitch: '2.0', pitches: ['2.0', '1.5', '1.25', '1.0'] },
+  { label: 'M16', dia: 16, defaultPitch: '2.0', pitches: ['2.0', '1.5', '1.0'] },
+  { label: 'M18', dia: 18, defaultPitch: '2.5', pitches: ['2.5', '2.0', '1.5', '1.0'] },
+  { label: 'M20', dia: 20, defaultPitch: '2.5', pitches: ['2.5', '2.0', '1.5', '1.0'] },
+  { label: 'M22', dia: 22, defaultPitch: '2.5', pitches: ['2.5', '2.0', '1.5', '1.0'] },
+  { label: 'M24', dia: 24, defaultPitch: '3.0', pitches: ['3.0', '2.0', '1.5'] },
+  { label: 'M27', dia: 27, defaultPitch: '3.0', pitches: ['3.0', '2.0', '1.5'] },
+  { label: 'M30', dia: 30, defaultPitch: '3.5', pitches: ['3.5', '3.0', '2.0', '1.5'] },
+  { label: 'M36', dia: 36, defaultPitch: '4.0', pitches: ['4.0', '3.0', '2.0'] }
+];
+
 const TURNING_INSERTS = ['CNMG', 'TNMG', 'WNMG', 'DNMG', 'VNMG', 'CCMT', 'DCMT', 'Grooving Insert', 'Threading Insert'];
 const NOSE_RADII = ['0.2', '0.4', '0.8', '1.2'];
 const MILLING_TOOLS = ['Indexable Face Mill', 'Indexable Endmill', 'Solid Carbide Endmill', 'Chamfer Cutter', 'Boring Bar'];
 const FLUTE_COUNTS = ['2', '3', '4', '5', '6', '8'];
 const PITCH_OPTIONS = ['0.5', '0.7', '0.8', '1.0', '1.25', '1.5', '1.75', '2.0', '2.5', '3.0', '3.5', '4.0'];
-
-const STANDARD_PITCH_MAP = {
-  3: '0.5', 4: '0.7', 5: '0.8', 6: '1.0', 8: '1.25', 10: '1.5',
-  12: '1.75', 14: '2.0', 16: '2.0', 18: '2.5', 20: '2.5', 24: '3.0', 30: '3.5', 36: '4.0'
-};
 
 export default function ToolingTab({ toolingTrials = [], refreshAllData, askGeminiAI }) {
   const [customerName, setCustomerName] = useState('');
@@ -78,6 +92,7 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
   const [operation, setOperation] = useState('OD Rough Turning');
   const [material, setMaterial] = useState('Mild Steel');
   const [dia, setDia] = useState('50');
+  const [tapSize, setTapSize] = useState('M10');
   const [length, setLength] = useState('60');
   const [insertShape, setInsertShape] = useState('CNMG');
   const [noseRadius, setNoseRadius] = useState('0.8');
@@ -88,25 +103,39 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
   const [aiAdvice, setAiAdvice] = useState('');
   const [loadingAI, setLoadingAI] = useState(false);
 
-  const isHoleOp = operation.includes('Drilling') || operation.includes('Tapping') || operation === 'Reaming';
-  const isTapOrThread = operation.includes('Tapping') || operation.includes('Threading');
+  const isTapping = operation.includes('Tapping');
+  const isThreading = operation.includes('Threading');
+  const isHoleOp = operation.includes('Drilling') || isTapping || operation === 'Reaming';
+  const isTapOrThread = isTapping || isThreading;
+
+  const selectedTapObj = TAP_SIZES.find(t => t.label === tapSize) || TAP_SIZES[5];
 
   const handleProcessChange = (val) => {
     setProcessType(val);
     setOperation(OPERATIONS[val][0]);
   };
 
-  const handleDiaChange = (val) => {
-    setDia(val);
-    const numDia = Math.round(parseFloat(val));
-    if (isTapOrThread && STANDARD_PITCH_MAP[numDia]) {
-      setPitch(STANDARD_PITCH_MAP[numDia]);
+  const handleOperationChange = (val) => {
+    setOperation(val);
+    if (val.includes('Tapping')) {
+      const tObj = TAP_SIZES.find(t => t.label === tapSize) || TAP_SIZES[5];
+      setDia(String(tObj.dia));
+      setPitch(tObj.defaultPitch);
+    }
+  };
+
+  const handleTapSizeChange = (val) => {
+    setTapSize(val);
+    const tObj = TAP_SIZES.find(t => t.label === val);
+    if (tObj) {
+      setDia(String(tObj.dia));
+      setPitch(tObj.defaultPitch);
     }
   };
 
   const calc = useMemo(() => {
     const matObj = MATERIALS.find(m => m.name === material) || MATERIALS[0];
-    const d = Math.max(parseFloat(dia) || 0, 0.1);
+    const d = Math.max(isTapping ? selectedTapObj.dia : (parseFloat(dia) || 0), 0.1);
     const len = parseFloat(length) || 0;
     const depthCut = parseFloat(doc) || 0.5;
     const p = parseFloat(pitch) || 1.0;
@@ -152,11 +181,11 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
 
     let rpm = Math.round((vc * 1000) / (Math.PI * d));
 
-    if (operation.includes('Tapping')) {
+    if (isTapping) {
       vc = Math.round(matObj.vc * 0.08);
       rpm = Math.min(Math.max(Math.round((vc * 1000) / (Math.PI * d)), 80), 450);
       fRev = p;
-    } else if (operation.includes('Threading')) {
+    } else if (isThreading) {
       vc = Math.round(matObj.vc * 0.45);
       rpm = Math.min(Math.round((vc * 1000) / (Math.PI * d)), 1200);
       fRev = p;
@@ -167,10 +196,10 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
 
     const fMin = Math.round(rpm * fRev);
     return { vc, rpm, fRev, fMin };
-  }, [material, dia, length, doc, pitch, noseRadius, flutes, operation, processType, isHoleOp, isTapOrThread]);
+  }, [material, dia, tapSize, selectedTapObj, length, doc, pitch, noseRadius, flutes, operation, processType, isTapping, isThreading, isHoleOp, isTapOrThread]);
 
-  const diaLabel = operation.includes('Tapping')
-    ? 'Tap Dia (mm)'
+  const diaLabel = isTapping
+    ? 'Tap Size'
     : operation === 'Reaming'
     ? 'Reamer Dia (mm)'
     : isHoleOp
@@ -190,9 +219,9 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
       customerName: customerName || 'General',
       operation: `${processType} - ${operation}`,
       material,
-      dia,
+      dia: isTapping ? `${tapSize} x ${pitch}` : dia,
       length,
-      toolType: isHoleOp ? operation : processType === 'Turning' ? `${insertShape} R${noseRadius}` : `${millingTool} ${flutes}F`,
+      toolType: isTapping ? `${tapSize} Tap` : isHoleOp ? operation : processType === 'Turning' ? `${insertShape} R${noseRadius}` : `${millingTool} ${flutes}F`,
       doc: isTapOrThread ? `Pitch ${pitch}` : doc,
       rpm: calc.rpm.toString(),
       feed: `${calc.fRev} mm/rev (${calc.fMin} mm/min)`
@@ -204,7 +233,8 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
     if (!askGeminiAI) return;
     setLoadingAI(true);
     try {
-      const prompt = `CNC ${processType} - ${operation} on ${material}, Dia: ${dia}mm, Length: ${length}mm, DOC: ${doc}mm. Calculated RPM: ${calc.rpm}, Feed: ${calc.fRev} mm/rev (${calc.fMin} mm/min). Give brief practical shop-floor advice.`;
+      const spec = isTapping ? `${tapSize} x ${pitch}mm` : `Dia: ${dia}mm, DOC: ${doc}mm`;
+      const prompt = `CNC ${processType} - ${operation} on ${material}, ${spec}, Length: ${length}mm. Calculated RPM: ${calc.rpm}, Feed: ${calc.fRev} mm/rev (${calc.fMin} mm/min). Give brief practical shop-floor advice.`;
       const res = await askGeminiAI(prompt);
       setAiAdvice(res);
     } catch {
@@ -249,7 +279,7 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
             <label className="block text-[11px] font-semibold text-slate-400 mb-1">Operation</label>
             <select
               value={operation}
-              onChange={(e) => setOperation(e.target.value)}
+              onChange={(e) => handleOperationChange(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
             >
               {OPERATIONS[processType].map((op) => (
@@ -275,12 +305,24 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
 
           <div>
             <label className="block text-[11px] font-semibold text-slate-400 mb-1">{diaLabel}</label>
-            <input
-              type="number"
-              value={dia}
-              onChange={(e) => handleDiaChange(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
-            />
+            {isTapping ? (
+              <select
+                value={tapSize}
+                onChange={(e) => handleTapSizeChange(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
+              >
+                {TAP_SIZES.map((t) => (
+                  <option key={t.label} value={t.label}>{t.label}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="number"
+                value={dia}
+                onChange={(e) => setDia(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
+              />
+            )}
           </div>
 
           <div>
@@ -295,7 +337,33 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {isTapOrThread ? (
+          {isTapping ? (
+            <>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Thread Pitch (mm)</label>
+                <select
+                  value={pitch}
+                  onChange={(e) => setPitch(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
+                >
+                  {selectedTapObj.pitches.map((p) => (
+                    <option key={p} value={p}>
+                      {p} mm {p === selectedTapObj.defaultPitch ? '(Standard)' : '(Fine)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Tap Drill Size (mm)</label>
+                <input
+                  type="text"
+                  readOnly
+                  value={`${+(selectedTapObj.dia - parseFloat(pitch)).toFixed(2)} mm`}
+                  className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-cyan-300 font-semibold outline-none"
+                />
+              </div>
+            </>
+          ) : isThreading ? (
             <>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-400 mb-1">Thread Pitch (mm)</label>
@@ -462,7 +530,7 @@ export default function ToolingTab({ toolingTrials = [], refreshAllData, askGemi
         {toolingTrials.map((t) => (
           <div key={t.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs space-y-1">
             <div className="flex justify-between font-bold text-white">
-              <span>{t.material} - {t.operation} (Ø{t.dia}mm)</span>
+              <span>{t.material} - {t.operation} ({t.dia})</span>
               <span className="text-cyan-400">{t.toolType}</span>
             </div>
             <div className="text-slate-300">
