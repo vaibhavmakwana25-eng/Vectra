@@ -519,47 +519,51 @@ const applyNoseCompToCode = (rawCode, compVal) => {
   // Update header comment tag if present
   let out = str.replace(/\|\s*G4[012]\s*\)/g, ' | ' + mode + ')');
 
+  // Remove any previously injected standalone comp lines
+  out = out
+    .replace(/^\s*G4[012]\s*\(TOOL NOSE RADIUS COMPENSATION ACTIVE\)\s*\r?\n?/gm, '')
+    .replace(/^\s*G40\s*\(CANCEL TOOL NOSE COMPENSATION\)\s*\r?\n?/gm, '');
+
+  // Strip existing inline G41/G42 prefixes first so switching modes is clean
+  out = out.replace(/^(\s*(?:N\d+\s+)?)\b(G41|G42)\s+(G0?1\b)/gm, '$1$3');
+
   if (mode === 'G40') {
-    return out
-      .replace(/\b(G41|G42)\b/g, 'G40')
-      .replace(/^\s*G4[012]\s*\(TOOL NOSE RADIUS COMPENSATION ACTIVE\)\s*\r?\n?/gm, '')
-      .replace(/^\s*G40\s*\(CANCEL TOOL NOSE COMPENSATION\)\s*\r?\n?/gm, '');
+    return out.replace(/\b(G41|G42)\b/g, 'G40');
   }
 
-  // If G41/G42 already exists in code, normalize to chosen mode
-  if (/\b(G41|G42)\b/.test(out)) {
-    return out.replace(/\b(G41|G42)\b/g, mode);
-  }
-
-  // Otherwise inject active G41/G42 right before first cutting G01 move and G40 before program end/retract
+  // Inject directly into the first G01 cutting line with X/Z/C
   const lines = out.split(/\r?\n/);
-  let insertedActive = false;
+  let appliedInline = false;
+
   for (let i = 0; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (/^(N\d+\s+)?G0?1\b/.test(t) && /[XZC]/i.test(t)) {
-      lines.splice(i, 0, mode + ' (TOOL NOSE RADIUS COMPENSATION ACTIVE)');
-      insertedActive = true;
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (/^(N\d+\s+)?G0?1\b/.test(trimmed) && /[XZC]/i.test(trimmed)) {
+      lines[i] = line.replace(/\b(G0?1)\b/, mode + ' $1');
+      appliedInline = true;
       break;
     }
   }
 
-  if (insertedActive) {
-    let insertedCancel = false;
+  if (appliedInline) {
+    let cancelAt = -1;
     for (let j = lines.length - 1; j >= 0; j--) {
       const t2 = lines[j].trim();
       if (/^(N\d+\s+)?(G28|G0?0\s+X100|M0?5|M30)\b/.test(t2)) {
-        lines.splice(j, 0, 'G40 (CANCEL TOOL NOSE COMPENSATION)');
-        insertedCancel = true;
+        cancelAt = j;
         break;
       }
     }
-    if (!insertedCancel) {
+    if (cancelAt === -1) {
       const m30Idx = lines.findIndex((ln) => /^%?\s*M30\b/.test(ln.trim()));
-      if (m30Idx >= 0) {
-        lines.splice(m30Idx, 0, 'G40 (CANCEL TOOL NOSE COMPENSATION)');
-      }
+      if (m30Idx >= 0) cancelAt = m30Idx;
+    }
+    if (cancelAt >= 0) {
+      lines.splice(cancelAt, 0, 'G40 (CANCEL TOOL NOSE COMPENSATION)');
     }
     out = lines.join('\n');
+  } else if (/\b(G41|G42)\b/.test(out)) {
+    out = out.replace(/\b(G41|G42)\b/g, mode);
   }
 
   return out;
