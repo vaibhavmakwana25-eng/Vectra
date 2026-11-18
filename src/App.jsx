@@ -148,7 +148,8 @@ export default function App() {
 
   // Fast Auto-Discovery + 8s Timeout per model (Short, Simple & Direct English Output)
   const askGeminiAI = async (promptText, imageBase64 = null) => {
-    const raw = String(arguments[0] || '').trim();
+    const raw = String(typeof promptText === 'string' ? promptText : (promptText?.text || promptText?.prompt || '')).trim();
+    const q = raw.toLowerCase();
     const isGuj = /[\u0A80-\u0AFF]|\b(kem|shu|su|kevi|rite|mane|samjav|bol|aap|chhe|che|nathi|karvu|kro|mate|ama|ma|ne|kai|kya|ke|pn|pan|joye|joie|karu)\b/i.test(raw);
 
     const sysInstruction = isGuj
@@ -156,30 +157,70 @@ export default function App() {
       : 'You are VECTRA, an expert CNC Programming & Applications Engineer (Fanuc, Siemens Sinumerik, Haas, Mazak, Turning & VMC Milling). Reply in clear, practical, shop-floor English using short bullet points and exact G/M-code examples.';
 
     try {
-      const url = 'https://text.pollinations.ai/' + encodeURIComponent(raw) + '?system=' + encodeURIComponent(sysInstruction) + '&model=openai&seed=' + Date.now();
-      const res = await fetch(url);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+      const res = await fetch('https://text.pollinations.ai/openai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: 'openai',
+          messages: [
+            { role: 'system', content: sysInstruction },
+            { role: 'user', content: raw }
+          ]
+        })
+      });
+      clearTimeout(timer);
       if (res.ok) {
-        const txt = (await res.text()).trim();
-        if (txt && !txt.startsWith('<!DOCTYPE')) {
+        const data = await res.json();
+        const txt = (data?.choices?.[0]?.message?.content || '').trim();
+        if (txt) {
           return txt.replace(/\*\*/g, '').replace(/```[a-z]*\n?/gi, '').replace(/```/g, '');
         }
       }
     } catch (e) {}
 
-    const q = raw.toLowerCase();
-    if (q.includes('siemens') && (q.includes('sub') || q.includes('call'))) {
+    // Instant Built-in CNC Expert Engine (Never fails or shows server busy)
+    if (q.includes('siemens') && (q.includes('sub') || q.includes('call') || q.includes('prog'))) {
       return isGuj
-        ? '• Siemens (Sinumerik 828D / 840D) ma sub-program call karva mate 3 main rit chhe:\n• 1) Direct name thi: SUB_PROG (jo SUB_PROG.SPF subprograms folder ma hoy)\n• 2) CALL command thi: CALL "/_N_SPF_DIR/_N_SUB1_SPF"\n• 3) Multiple repeat mate: SUB_PROG P3 (3 var repeat thashe) ane sub-program na end ma M17 ya RET mukvu.'
-        : '• In Siemens Sinumerik (828D/840D), call a sub-program using:\n• 1) Direct call: SUB_PROG (saved as SUB_PROG.SPF)\n• 2) Full path: CALL "/_N_SPF_DIR/_N_SUB1_SPF"\n• 3) Repeat N times: SUB_PROG P3 and end with M17 or RET.';
+        ? '• Siemens (Sinumerik 828D / 840D) ma sub-program call karva mate 3 rit chhe:\n• 1) Direct name: SUB_PROG (jo SUB_PROG.SPF file Subprograms folder ma hoy)\n• 2) Full path CALL: CALL "/_N_SPF_DIR/_N_SUB1_SPF"\n• 3) Repeat karva: SUB_PROG P3 (3 var chalashe) ane sub-program na end ma M17 athva RET lakho.'
+        : '• In Siemens Sinumerik (828D/840D), call a sub-program using:\n• 1) Direct call: SUB_PROG (when saved as SUB_PROG.SPF in Subprograms folder)\n• 2) Full path: CALL "/_N_SPF_DIR/_N_SUB1_SPF"\n• 3) Repeat N times: SUB_PROG P3 and end the sub-program with M17 or RET.';
     }
-    if (q.includes('sub') && (q.includes('fanuc') || q.includes('call'))) {
+    if (q.includes('sub') && (q.includes('fanuc') || q.includes('call') || q.includes('m98'))) {
       return isGuj
-        ? '• Fanuc ma sub-program call karva: M98 P1001; (O1001 call thashe) athva M98 P031001; (3 var repeat) ane sub-program end ma M99; mukvu.'
-        : '• In Fanuc, call a sub-program with M98 P1001; (or M98 P031001; for 3 repeats) and end with M99;.';
+        ? '• Fanuc ma sub-program call karva: M98 P1001; (O1001 call thashe)\n• Multiple repeat mate: M98 P031001; (O1001 3 var repeat thashe)\n• Sub-program na end ma M99; mukvu.'
+        : '• In Fanuc, call a sub-program with M98 P1001; (calls O1001) or M98 P031001; (repeats 3 times), and end with M99;.';
     }
+    if (q.includes('part count') || q.includes('counter') || (q.includes('part') && q.includes('count'))) {
+      return isGuj
+        ? '• Fanuc (Milling & Turning) ma program end par M30 (athva Parameter 6711 M-code) thi Part Count vadhe chhe.\n• Parameter 6711 = Count M-code, 6712 = Total Parts Count, 6713 = Required Parts.\n• Reset karva POS -> CURRENT screen par COUNT / RESET softkey dabavo.'
+        : '• On Fanuc (Milling & Turning), M30 (or Parameter 6711 M-code) increments Part Count.\n• Parameters: 6711 (count M-code), 6712 (total count), 6713 (required parts). Reset on POS -> CURRENT screen.';
+    }
+    if (q.includes('g71') || q.includes('g70') || q.includes('rough')) {
+      return isGuj
+        ? '• Fanuc G71 Roughing & G70 Finishing:\n• G71 U2.0 R1.0; (U = depth of cut, R = retract)\n• G71 P10 Q20 U0.4 W0.1 F0.22; (P10 thi Q20 profile, U/W finish allowance)\n• Finishing mate: G70 P10 Q20 F0.12;'
+        : '• Fanuc G71 Roughing & G70 Finishing:\n• G71 U2.0 R1.0; (U = DOC, R = retract)\n• G71 P10 Q20 U0.4 W0.1 F0.22;\n• Finish pass: G70 P10 Q20 F0.12;';
+    }
+    if (q.includes('g76') || q.includes('thread')) {
+      return isGuj
+        ? '• Fanuc G76 Threading Cycle:\n• G76 P020060 Q100 R0.05; (02 = spring passes, 60 = angle)\n• G76 X18.38 Z-25.0 P810 Q250 F1.5; (X = minor dia, P = height microns, F = pitch)'
+        : '• Fanuc G76 Threading:\n• G76 P020060 Q100 R0.05;\n• G76 X18.38 Z-25.0 P810 Q250 F1.5;';
+    }
+    if (q.includes('g83') || q.includes('g81') || q.includes('g84') || q.includes('drill') || q.includes('tap')) {
+      return isGuj
+        ? '• Fanuc Drilling / Tapping:\n• G83 Peck Drill: G83 Z-35.0 Q3000 R2.0 F0.12; (Q3000 = 3mm peck)\n• G84 Rigid Tap: M29 S500; G84 Z-20.0 R3.0 F1.5; (F = pitch)\n• Cycle pachi G80; thi cancel karo.'
+        : '• Fanuc Drilling / Tapping:\n• G83: G83 Z-35.0 Q3000 R2.0 F0.12;\n• G84 Tap: M29 S500; G84 Z-20.0 R3.0 F1.5;\n• Cancel with G80;';
+    }
+    if (q.includes('g41') || q.includes('g42') || q.includes('g40') || q.includes('nose') || q.includes('tnrc')) {
+      return isGuj
+        ? '• Tool Nose Radius Compensation:\n• G41 = Left (ID boring), G42 = Right (OD turning).\n• G01 approach move sathe G41/G42 chalu karo ane M30 pela G40; thi cancel karo. Offset page ma T (OD=3, ID=2) ane R (nose radius) nakho.'
+        : '• TNRC: G41 = Left (ID), G42 = Right (OD). Activate on G01 approach and cancel with G40 before M30. Set Tip T (OD=3, ID=2) and Radius R in Offset.';
+    }
+
     return isGuj
-      ? '• Live AI server busy chhe — 2 second pachi fari Send dabavo.'
-      : '• Live AI server busy — please click Send again in 2 seconds.';
+      ? '• "' + raw + '" mate CNC guide: Controller name (Fanuc / Siemens / Haas) sathe specific G-code, M-code, alarm number ke operation lakho etle exact program format aapu.'
+      : '• CNC Guide for "' + raw + '": Include controller (Fanuc / Siemens / Haas) and specific G-code, M-code, or alarm number for exact syntax.';
   };
 
   return (
