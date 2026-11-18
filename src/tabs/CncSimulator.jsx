@@ -32,8 +32,8 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       }
     }
 
-    const isEccProg = operation === 'Eccentric Turning' || TName.includes('ECCENTRIC');
-    const isIdEccProg = isEccProg && (isID || TName.includes('ID ECCENTRIC'));
+    const isEccProg = operation === 'Eccentric Turning' || String(templateName + ' ' + workSide + ' ' + operation).toUpperCase().includes('ECCENTRIC');
+    const isIdEccProg = isEccProg && (isID || String(templateName + ' ' + workSide + ' ' + operation).toUpperCase().includes('ID ECCENTRIC'));
 
     let rawOD = Number(mfgCfg.stockX || 50);
     let finOD = Number(mfgCfg.stockY || 32);
