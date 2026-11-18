@@ -796,7 +796,7 @@ const [copied, setCopied] = useState(false);
 
   const operationOptions = useMemo(() => {
     if (domainKey === 'Turning') {
-      return ['Turning', 'Facing', 'Boring', 'Threading', 'Grooving', 'Parting', 'Drilling', 'Tapping', 'Turn-Mill'];
+      return ['Turning', 'Facing', 'Boring', 'Threading', 'Grooving', 'Parting', 'Drilling', 'Tapping', 'Turn-Mill', 'Eccentric Turning'];
     }
     return ['Pocket Milling', 'Spigot Milling', 'Slot Milling', 'Face Milling', 'Drilling', 'Tapping', 'Boring', 'Reaming'];
   }, [domainKey]);
@@ -835,7 +835,7 @@ const [copied, setCopied] = useState(false);
     setSelectedTemplateIdx(0);
     if (filteredTemplates[0]) {
       setTitle(filteredTemplates[0].name + ' [' + machiningStage + ']');
-      setCode((operation === 'Turn-Mill' && Array.isArray(TURN_MILL_SAMPLES) && TURN_MILL_SAMPLES.length > 0) ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, controller) : adaptCodeForMode(filteredTemplates[0].code, programMode, controller, domainKey, operation, workSide, mfgCfg));
+      setCode((operation === 'Turn-Mill', 'Eccentric Turning' && Array.isArray(TURN_MILL_SAMPLES) && TURN_MILL_SAMPLES.length > 0) ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, controller) : adaptCodeForMode(filteredTemplates[0].code, programMode, controller, domainKey, operation, workSide, mfgCfg));
     }
   }, [filteredTemplates, programMode, controller, domainKey, operation, workSide, mfgCfg, machiningStage]);
 
@@ -868,7 +868,7 @@ const [copied, setCopied] = useState(false);
 
   const handleTemplateChange = (idx) => {
     const i = Number(idx);
-    if (operation === 'Turn-Mill') {
+    if (operation === 'Turn-Mill', 'Eccentric Turning') {
       const safeIdx = Number.isFinite(i) && i >= 0 && i < TURN_MILL_SAMPLES.length ? i : 0;
       const item = TURN_MILL_SAMPLES[safeIdx];
       if (item) {
@@ -883,7 +883,7 @@ const [copied, setCopied] = useState(false);
     if (typeof setSelectedTemplateIdx === 'function') setSelectedTemplateIdx(i);
     if (typeof setTitle === 'function') setTitle(item.name);
     if (typeof setCode === 'function') {
-      setCode((operation === 'Turn-Mill' && Array.isArray(TURN_MILL_SAMPLES) && TURN_MILL_SAMPLES.length > 0) ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, controller) : adaptCodeForMode(item.code, programMode, controller, domainKey, operation, workSide, mfgCfg));
+      setCode((operation === 'Turn-Mill', 'Eccentric Turning' && Array.isArray(TURN_MILL_SAMPLES) && TURN_MILL_SAMPLES.length > 0) ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, controller) : adaptCodeForMode(item.code, programMode, controller, domainKey, operation, workSide, mfgCfg));
     }
   };
 
@@ -1415,7 +1415,7 @@ const [copied, setCopied] = useState(false);
                       onChange={(e) => setInsertType(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white outline-none"
                     >
-                      {(typeof operation !== 'undefined' && operation === 'Turn-Mill' ? TURN_MILL_LIVE_TOOLS : TURNING_INSERTS).map((ins) => (
+                      {(typeof operation !== 'undefined' && operation === 'Turn-Mill', 'Eccentric Turning' ? TURN_MILL_LIVE_TOOLS : TURNING_INSERTS).map((ins) => (
                         <option key={ins} value={ins}>{ins}</option>
                       ))}
                     </select>
@@ -1583,7 +1583,7 @@ const [copied, setCopied] = useState(false);
                 onChange={(e) => handleTemplateChange(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
               >
-                {(operation === 'Turn-Mill' ? TURN_MILL_SAMPLES : filteredTemplates).map((tpl, idx) => (
+                {(operation === 'Turn-Mill', 'Eccentric Turning' ? TURN_MILL_SAMPLES : filteredTemplates).map((tpl, idx) => (
   <option key={(tpl && tpl.name) || idx} value={idx}>{(tpl && tpl.name) || tpl}</option>
 ))}
               </select>
@@ -1678,7 +1678,7 @@ const [copied, setCopied] = useState(false);
                 )}
               </div>
             </div>
-            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{applyNoseCompToCode((typeof operation !== 'undefined' && operation === 'Turn-Mill') ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, typeof controller !== 'undefined' ? controller : 'Fanuc') : (p.code), typeof compMode !== 'undefined' ? compMode : '')}</pre>
+            <pre className="bg-slate-950 p-3 rounded-lg text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-60">{applyNoseCompToCode((typeof operation !== 'undefined' && operation === 'Turn-Mill', 'Eccentric Turning') ? formatTurnMillByController((TURN_MILL_SAMPLES[Number(typeof selectedTemplateIdx !== 'undefined' ? selectedTemplateIdx : 0) % TURN_MILL_SAMPLES.length] || TURN_MILL_SAMPLES[0]).code, typeof controller !== 'undefined' ? controller : 'Fanuc') : (p.code), typeof compMode !== 'undefined' ? compMode : '')}</pre>
           </div>
         ))}
       </div>
