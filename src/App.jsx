@@ -318,19 +318,6 @@ export default function App() {
       </nav>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-300 uppercase">Google Gemini API Key (Free)</label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => saveApiKey(e.target.value)}
-                placeholder="AIzaSy..."
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:border-cyan-500 outline-none"
-              />
-              <p className="text-xs text-slate-400">
-                Get your free API key from Google AI Studio (aistudio.google.com) and paste it here.
-              </p>
-            </div>
 
             <button
               onClick={() => setShowSettings(false)}
