@@ -16,10 +16,10 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
   if (domainKey === 'Turning') {
     
-    const rawOD = Number(mfgCfg.stockX || 50);
-    const finOD = Number(mfgCfg.stockY || 32);
-    const partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
-    const rawID = Number(mfgCfg.rawIdDia || 20);
+    let rawOD = Number(mfgCfg.stockX || 50);
+    let finOD = Number(mfgCfg.stockY || 32);
+    let partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
+    let rawID = Number(mfgCfg.rawIdDia || 20);
 
     const isID = workSide === 'ID';
 
@@ -41,6 +41,18 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
     }
     const isEccProg = operation === 'Eccentric Turning' || String(templateName + ' ' + workSide + ' ' + operation).toUpperCase().includes('ECCENTRIC');
     const isIdEccProg = isEccProg && (isID || String(templateName + ' ' + workSide + ' ' + operation).toUpperCase().includes('ID ECCENTRIC'));
+    if (isEccProg) {
+      partLen = Math.max(20, macroVars['513'] || 356.0);
+      if (isIdEccProg) {
+        rawOD = 407.0;
+        finOD = 407.0;
+        rawID = macroVars['500'] || 353.0;
+      } else {
+        rawOD = macroVars['500'] || 407.0;
+        finOD = 340.0;
+        rawID = 286.0;
+      }
+    }
 
     const isFace = workSide === 'Face' || operation === 'Facing';
 
@@ -117,6 +129,7 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
           ecc = Math.abs(startD - endD) / 2;
         }
         snapshot(zNow, curD, false, k < 14 ? 'rough' : 'finish', `G3.6 L${120 + k * 10} R${ecc.toFixed(1)} Q${ecc.toFixed(1)} Z${zNow.toFixed(2)} S${sp}`);
+        if (moves.length > 0) moves[moves.length - 1].eccOffset = ecc;
       }
       snapshot(-z3, safeX, true, 'rapid', `G00 X${safeX.toFixed(1)} (RETRACT)`);
       snapshot(15, safeX, true, 'rapid', 'G30 U0 W0 M05 M30');
@@ -955,8 +968,8 @@ export default function CncSimulator({ code = "", domainKey, machineType, workSi
     });
 
     if (domainKey === 'Turning') {
-      const rawOD = Number(mfgCfg.stockX || 50);
-      const partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
+      let rawOD = Number(mfgCfg.stockX || 50);
+      let partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
       const stickout = Math.min(64, Math.max(38, Number(mfgCfg.chuckStickout || 65) * 0.78));
       const rawRad = 24;
 
@@ -1307,7 +1320,7 @@ export default function CncSimulator({ code = "", domainKey, machineType, workSi
   }, [moves, stepIdx, domainKey, isVTL, workSide, operation, templateName, mfgCfg, halfCut]);
 
   const current = moves[stepIdx] || moves[0];
-  const rawOD = Number(mfgCfg.stockX || 50);
+  let rawOD = Number(mfgCfg.stockX || 50);
   const activeOD = current.curOD ?? rawOD;
   const activeID = current.curID ?? (workSide === 'ID' ? Number(mfgCfg.rawIdDia || 20) : 0);
 
@@ -1406,4 +1419,5 @@ export default function CncSimulator({ code = "", domainKey, machineType, workSi
     </div>
   );
 }
+
 
