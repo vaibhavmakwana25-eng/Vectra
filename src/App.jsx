@@ -186,7 +186,6 @@ ${promptText}`;
       const listData = await listRes.json();
 
       if (!listRes.ok) { return 'Gemini API request failed (' + listRes.status + '). Please check API key in Settings or try again.'; }
-      }
 
       const fastModels = (listData.models || [])
         .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
