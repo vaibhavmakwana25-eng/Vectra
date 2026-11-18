@@ -16,6 +16,14 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
   if (domainKey === 'Turning') {
     
+    const rawOD = Number(mfgCfg.stockX || 50);
+    const finOD = Number(mfgCfg.stockY || 32);
+    const partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
+    const rawID = Number(mfgCfg.rawIdDia || 20);
+
+    const isID = workSide === 'ID';
+
+    // Safe G-code & Macro B parser (runs AFTER isID is defined so VTL/Turning never crashes)
     const codeLines = String(code || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const macroVars = {};
     const progX = [];
@@ -31,40 +39,9 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
         if (zm && parseFloat(zm[1]) < 0) progZ.push(Math.abs(parseFloat(zm[1])));
       }
     }
-
     const isEccProg = operation === 'Eccentric Turning' || String(templateName + ' ' + workSide + ' ' + operation).toUpperCase().includes('ECCENTRIC');
     const isIdEccProg = isEccProg && (isID || String(templateName + ' ' + workSide + ' ' + operation).toUpperCase().includes('ID ECCENTRIC'));
 
-    let rawOD = Number(mfgCfg.stockX || 50);
-    let finOD = Number(mfgCfg.stockY || 32);
-    let partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
-    let rawID = Number(mfgCfg.rawIdDia || 20);
-
-    if (macroVars['500'] && macroVars['513']) {
-      partLen = Math.max(20, macroVars['513']);
-      if (isIdEccProg) {
-        rawOD = 407;
-        finOD = 407;
-        rawID = 286;
-      } else {
-        rawOD = macroVars['500'];
-        finOD = 340;
-        rawID = 286;
-      }
-    } else if (progX.length >= 2 && operation !== 'Drilling' && operation !== 'Tapping') {
-      const maxProgX = Math.max(...progX);
-      const minProgX = Math.min(...progX.filter(v => v > 0));
-      if (isID) {
-        rawID = Math.max(10, minProgX || rawID);
-        rawOD = Math.max(rawOD, maxProgX + 30);
-      } else {
-        rawOD = Math.max(15, maxProgX);
-        finOD = Math.max(8, minProgX || finOD);
-      }
-      if (progZ.length > 0) partLen = Math.max(15, Math.max(...progZ));
-    }
-
-    const isID = workSide === 'ID';
     const isFace = workSide === 'Face' || operation === 'Facing';
 
     const zSlices = 60;
