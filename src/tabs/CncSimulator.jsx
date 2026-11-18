@@ -115,6 +115,7 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
     };
 
     
+    
     if (isEccProg) {
       const z1 = macroVars['506'] || (isIdEccProg ? 22.08 : 25.0);
       const z2 = macroVars['509'] || (isIdEccProg ? 328.06 : 331.0);
