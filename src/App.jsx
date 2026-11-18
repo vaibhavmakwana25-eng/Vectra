@@ -319,16 +319,6 @@ export default function App() {
             </div>
 
 
-            <button
-              onClick={() => setShowSettings(false)}
-              className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-2.5 rounded-lg"
-            >
-              Save & Close
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
 
