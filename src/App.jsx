@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from './db';
 import {
   Wrench, Cpu, FileCode, BookOpen, CalendarCheck, Bot, Settings, X
@@ -12,7 +12,7 @@ import DailyLogsTab from './tabs/DailyLogsTab';
 import AskAITab from './tabs/AskAITab';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('site');
+  const [activeTab, setActiveTab] = useState('programs');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('vectra_gemini_key') || '');
   const [showSettings, setShowSettings] = useState(false);
 
@@ -151,7 +151,7 @@ export default function App() {
     const cleanKey = apiKey.trim();
     if (!cleanKey) {
       setShowSettings(true);
-      return 'âš ï¸ Please click the Settings (âš™ï¸) icon at the top right and enter your Free Gemini API Key.';
+      return ' Please click the Settings () icon at the top right and enter your Free Gemini API Key.';
     }
 
     const pastKnowledge = siteVisits
@@ -166,7 +166,7 @@ export default function App() {
 
     const fullPrompt = `You are VECTRA, an expert CNC Applications, Tooling, Cycle Time & Programming Engineer Assistant for Jyoti CNC machines.
 Always respond strictly in clear, simple technical English.
-STRICT FORMATTING RULE: Never use markdown symbols like **, ##, ###, or backticks. Reply in plain, simple, direct shop-floor English in maximum 4 to 6 short bullet lines (using simple • bullets). Give only exact practical parameters, G-code, or steps with zero fluff.
+STRICT FORMATTING RULE: Never use markdown symbols like **, ##, ###, or backticks. Reply in plain, simple, direct shop-floor English in maximum 4 to 6 short bullet lines (using simple  bullets). Give only exact practical parameters, G-code, or steps with zero fluff.
 --- PAST SITE RECORDS ---
 ${pastKnowledge || 'None yet'}
 --- SAVED PARAMETERS ---
@@ -185,8 +185,7 @@ ${promptText}`;
       const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${cleanKey}`);
       const listData = await listRes.json();
 
-      if (!listRes.ok) {
-        return `âŒ API Key Error: ${listData?.error?.message || listRes.statusText}`;
+      if (!listRes.ok) { return 'Gemini API request failed (' + listRes.status + '). Please check API key in Settings or try again.'; }
       }
 
       const fastModels = (listData.models || [])
@@ -231,9 +230,9 @@ ${promptText}`;
         }
       }
 
-      return `âŒ All fast models busy right now (${lastError}). Please click Send again in 5 seconds.`;
+      return ` All fast models busy right now (${lastError}). Please click Send again in 5 seconds.`;
     } catch (err) {
-      return `âŒ Network Error: ${err.message}`;
+      return ` Network Error: ${err.message}`;
     }
   };
 
@@ -266,19 +265,6 @@ ${promptText}`;
       </header>
 
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 pb-24">
-        {activeTab === 'site' && (
-          <SiteVisitTab
-            siteVisits={siteVisits}
-            dailyLogs={dailyLogs}
-            refreshAllData={refreshAllData}
-            askGeminiAI={askGeminiAI}
-            fileToBase64={fileToBase64}
-            shareOnWhatsApp={shareOnWhatsApp}
-            openGoogleMapsPin={openGoogleMapsPin}
-            openGoogleMapsRoute={openGoogleMapsRoute}
-            captureCurrentGPS={captureCurrentGPS}
-          />
-        )}
         {activeTab === 'tooling' && (
           <ToolingTab
             toolingTrials={toolingTrials}
@@ -302,17 +288,6 @@ ${promptText}`;
             shareOnWhatsApp={shareOnWhatsApp}
           />
         )}
-        {activeTab === 'logs' && (
-          <DailyLogsTab
-            dailyLogs={dailyLogs}
-            siteVisits={siteVisits}
-            refreshAllData={refreshAllData}
-            openGoogleMapsPin={openGoogleMapsPin}
-            openGoogleMapsRoute={openGoogleMapsRoute}
-            captureCurrentGPS={captureCurrentGPS}
-            shareOnWhatsApp={shareOnWhatsApp}
-          />
-        )}
         {activeTab === 'ai' && (
           <AskAITab
             askGeminiAI={askGeminiAI}
@@ -325,11 +300,9 @@ ${promptText}`;
       <nav className="fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 z-30">
         <div className="max-w-5xl mx-auto flex overflow-x-auto sm:grid sm:grid-cols-6">
           {[
-            { id: 'site', label: 'Site & AI', icon: Wrench },
             { id: 'tooling', label: 'Tooling', icon: Cpu },
             { id: 'programs', label: 'Programs', icon: FileCode },
             { id: 'params', label: 'Params/PDF', icon: BookOpen },
-            { id: 'logs', label: 'Daily Logs', icon: CalendarCheck },
             { id: 'ai', label: 'Ask AI', icon: Bot },
           ].map((tab) => {
             const Icon = tab.icon;

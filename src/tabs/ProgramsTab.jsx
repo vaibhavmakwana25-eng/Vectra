@@ -507,51 +507,52 @@ M30`;
 
 const applyNoseCompToCode = (rawCode, compVal) => {
   if (!rawCode) return rawCode;
-  let out = String(rawCode);
-  const up = String(compVal || '').toUpperCase();
-  let mode = '';
-  if (up.includes('G41')) mode = 'G41';
-  else if (up.includes('G42')) mode = 'G42';
-  else if (up.includes('G40')) mode = 'G40';
-  if (!mode) return out;
+  let text = String(rawCode);
+  const hadEscapedNewline = !text.includes("\n") && text.includes("\\n");
+  if (hadEscapedNewline) text = text.replace(/\\n/g, "\n");
+  const sep = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  const up = String(compVal || "").toUpperCase();
+  let mode = "";
+  if (up.includes("G41")) mode = "G41";
+  else if (up.includes("G42")) mode = "G42";
+  else if (up.includes("G40")) mode = "G40";
+  if (!mode) return rawCode;
 
-  out = out.split('| G42)').join('| ' + mode + ')').split('| G41)').join('| ' + mode + ')').split('| G40)').join('| ' + mode + ')');
-  out = out.split('G42 G01').join('G01').split('G41 G01').join('G01').split('G42 G1').join('G1').split('G41 G1').join('G1');
+  const cancelLine = "G40 (CANCEL TOOL NOSE COMPENSATION)";
+  const cleaned = lines.filter((l) => !l.includes("G40 (CANCEL TOOL NOSE COMPENSATION)"));
 
-  const cancelTag = 'G40 (CANCEL TOOL NOSE COMPENSATION)';
-  while (out.includes(cancelTag)) {
-    out = out.split(cancelTag + '\r\n').join('').split(cancelTag + '\n').join('').split(cancelTag + '\\n').join('').split(cancelTag).join('');
+  if (mode === "G40") {
+    const outG40 = cleaned.map((l) => l.replace(/\b(G41|G42)\b/gi, "G40")).join(sep);
+    return hadEscapedNewline ? outG40.replace(/\r?\n/g, "\\n") : outG40;
   }
 
-  if (mode === 'G40') {
-    return out.split('G42').join('G40').split('G41').join('G40');
-  }
-
-  const targets = ['G01 Z', 'G01 X', 'G01 C', 'G1 Z', 'G1 X', 'G1 C', 'g01 z', 'g01 x', 'g01 c'];
-  let bestIdx = -1;
-  let matchedTarget = '';
-  for (const t of targets) {
-    const idx = out.indexOf(t);
-    if (idx !== -1 && (bestIdx === -1 || idx < bestIdx)) {
-      bestIdx = idx;
-      matchedTarget = t;
+  let compApplied = false;
+  const withComp = cleaned.map((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("(") || trimmed.startsWith(";")) return line;
+    if (!compApplied && /\bG0?1\b\s*(?=[XZC])/i.test(line)) {
+      compApplied = true;
+      return line.replace(/\b(G0?1)\b/i, (m) => `${mode} ${m.toUpperCase()}`);
     }
+    return line.replace(/\b(G41|G42)\b/gi, mode);
+  });
+
+  const finalLines = [];
+  let cancelInserted = false;
+  for (const line of withComp) {
+    if (!cancelInserted && /\bM30\b/i.test(line)) {
+      finalLines.push(cancelLine);
+      cancelInserted = true;
+    }
+    finalLines.push(line);
+  }
+  if (!cancelInserted) {
+    finalLines.push(cancelLine);
   }
 
-  if (bestIdx !== -1) {
-    const parts = matchedTarget.trim().split(/\s+/);
-    const gWord = parts[0].toUpperCase();
-    const axisWord = parts[1].toUpperCase();
-    out = out.slice(0, bestIdx) + mode + ' ' + gWord + ' ' + axisWord + out.slice(bestIdx + matchedTarget.length);
-  }
-
-  const m30Idx = out.lastIndexOf('M30');
-  if (m30Idx !== -1 && !out.includes(cancelTag)) {
-    const sep = out.includes('\r\n') ? '\r\n' : (out.includes('\n') ? '\n' : '\\n');
-    out = out.slice(0, m30Idx) + cancelTag + sep + out.slice(m30Idx);
-  }
-
-  return out;
+  const joined = finalLines.join(sep);
+  return hadEscapedNewline ? joined.replace(/\r?\n/g, "\\n") : joined;
 };
 const formatTurnMillByController = (rawCode, ctrlName) => {
   const codeStr = String(rawCode || '');
