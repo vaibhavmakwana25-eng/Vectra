@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Play, Pause, RotateCcw, Box, ZoomIn, ZoomOut, Scissors } from 'lucide-react';
 
-function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}, activeGcode = '') {
+function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
   const tName = (templateName + ' ' + workSide + ' ' + operation).toUpperCase();
   const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
@@ -15,12 +15,10 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
   const chamfSize = Number(mfgCfg.chamferSize ?? 0.5);
 
   if (domainKey === 'Turning') {
-    const isEccOp = operation === 'Eccentric Turning' || TName.includes('ECCENTRIC');
-    const isEccID = isEccOp && (workSide === 'ID' || TName.includes('ID ECCENTRIC'));
-    const rawOD = isEccOp ? 407 : Number(mfgCfg.stockX || 50);
-    const finOD = isEccOp ? 340 : Number(mfgCfg.stockY || 32);
-    const partLen = isEccOp ? 356 : Math.max(12, Number(mfgCfg.stockZ || 45));
-    const rawID = isEccID ? 286 : (isEccOp ? 286 : Number(mfgCfg.rawIdDia || 20));
+    const rawOD = Number(mfgCfg.stockX || 50);
+    const finOD = Number(mfgCfg.stockY || 32);
+    const partLen = Math.max(12, Number(mfgCfg.stockZ || 45));
+    const rawID = Number(mfgCfg.rawIdDia || 20);
     const isID = workSide === 'ID';
     const isFace = workSide === 'Face' || operation === 'Facing';
 
@@ -71,144 +69,7 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       });
     };
 
-    
-    if (isEccOp) {
-      if (isEccID) {
-        // ID Eccentric Reducer (353mm -> 286mm over 356mm length, G3.6)
-        snapshot(10, 276, true, 'rapid', 'G00 X276.0 Z10.0 (ID ECCENTRIC APPROACH)');
-        snapshot(0, 353, true, 'rapid', 'G3.6 L10 R0.0 Q0.0 X353.0 Z0.0 S70 (ID START)');
-        const z1 = 22.08;
-        const z2 = 328.06;
-        const z3 = 356.0;
-        const steps = 12;
-        for (let k = 1; k <= steps; k++) {
-          const zNow = -((z3 * k) / steps);
-          const absZ = Math.abs(zNow);
-          let curDia = 353.0;
-          let eccShift = 0;
-          if (absZ <= z1) {
-            curDia = 353.0;
-            eccShift = 0;
-          } else if (absZ <= z2) {
-            const t = (absZ - z1) / (z2 - z1);
-            curDia = 353.0 - t * (353.0 - 286.0);
-            eccShift = t * 33.5;
-          } else {
-            curDia = 286.0;
-            eccShift = 33.5;
-          }
-          snapshot(
-            zNow,
-            curDia,
-            false,
-            k < steps ? 'rough' : 'finish',
-            `G3.6 L${140 + k * 10} R${eccShift.toFixed(1)} Q${eccShift.toFixed(1)} Z${zNow.toFixed(2)} S70 (ID DIA ${curDia.toFixed(1)})`
-          );
-        }
-        snapshot(-356, 276, true, 'rapid', 'G00 X276.0 (ID ECCENTRIC RETRACT)');
-        snapshot(15, 276, true, 'rapid', 'G30 W0 M05 M30');
-      } else {
-        // OD Eccentric Reducer (407mm -> 340mm over 356mm length, G3.6)
-        snapshot(10, 447, true, 'rapid', 'G00 Z0.0 X447.0 (OD ECCENTRIC APPROACH)');
-        snapshot(0, 407, true, 'rapid', 'G3.6 L10 R0.0 Q0.0 X407.0 S62 (OD START)');
-        const z1 = 25.0;
-        const z2 = 331.0;
-        const z3 = 356.0;
-        const steps = 12;
-        for (let k = 1; k <= steps; k++) {
-          const zNow = -((z3 * k) / steps);
-          const absZ = Math.abs(zNow);
-          let curDia = 407.0;
-          let eccShift = 0;
-          if (absZ <= z1) {
-            curDia = 407.0;
-            eccShift = 0;
-          } else if (absZ <= z2) {
-            const t = (absZ - z1) / (z2 - z1);
-            curDia = 407.0 - t * (407.0 - 340.0);
-            eccShift = t * 33.5;
-          } else {
-            curDia = 340.0;
-            eccShift = 33.5;
-          }
-          snapshot(
-            zNow,
-            curDia,
-            false,
-            k < steps ? 'rough' : 'finish',
-            `G3.6 L${130 + k * 10} R${eccShift.toFixed(1)} Q${eccShift.toFixed(1)} Z${zNow.toFixed(2)} S62 (OD DIA ${curDia.toFixed(1)})`
-          );
-        }
-        snapshot(-356, 447, true, 'rapid', 'G00 X447.0 (OD ECCENTRIC RETRACT)');
-        snapshot(15, 447, true, 'rapid', 'G30 U0 W0 M05 M30');
-      }
-      return moves;
-    }
-
-
-    try {
-      const rawLines = String(activeGcode || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      if (rawLines.length > 3 && operation !== 'Drilling' && operation !== 'Tapping') {
-        const vars = {};
-        for (const line of rawLines) {
-          const vm = line.match(/^#(\d+)\s*=\s*([-+]?\d*\.?\d+)/);
-          if (vm) vars[vm[1]] = parseFloat(vm[2]);
-        }
-        if (vars['500'] && vars['513']) {
-          const startDia = vars['500'];
-          const endDia = vars['508'] || vars['503'] || startDia;
-          const z1 = vars['506'] || 25;
-          const z2 = vars['509'] || (vars['513'] - 25);
-          const z3 = vars['513'];
-          const sp = vars['501'] || 70;
-          const isIdMacro = isID || (startDia < 380 && endDia < 300);
-          const safeDia = isIdMacro ? Math.max(20, endDia - 20) : startDia + 40;
-
-          snapshot(12, safeDia, true, 'rapid', `G00 X${safeDia.toFixed(1)} Z12.0`);
-          snapshot(0, startDia, true, 'rapid', `G3.6 L10 R0.0 Q0.0 X${startDia.toFixed(1)} S${sp}`);
-          for (let k = 1; k <= 14; k++) {
-            const zNow = -((z3 * k) / 14);
-            const absZ = Math.abs(zNow);
-            let curDia = startDia, ecc = 0;
-            if (absZ > z1 && absZ <= z2 && z2 > z1) {
-              const t = (absZ - z1) / (z2 - z1);
-              curDia = startDia + t * (endDia - startDia);
-              ecc = t * Math.abs(startDia - endDia) / 2;
-            } else if (absZ > z2) {
-              curDia = endDia;
-              ecc = Math.abs(startDia - endDia) / 2;
-            }
-            snapshot(zNow, curDia, false, k < 14 ? 'rough' : 'finish', `G3.6 L${120 + k * 10} R${ecc.toFixed(1)} Q${ecc.toFixed(1)} Z${zNow.toFixed(2)} S${sp}`);
-          }
-          snapshot(-z3, safeDia, true, 'rapid', `G00 X${safeDia.toFixed(1)}`);
-          snapshot(15, safeDia, true, 'rapid', 'G30 U0 W0 M05 M30');
-          return moves;
-        }
-        const motionMoves = [];
-        let curX = isID ? rawID : rawOD, curZ = 5, modalRapid = true;
-        for (const line of rawLines) {
-          const clean = line.replace(/\([^)]*\)/g, '').trim().toUpperCase();
-          if (!clean || clean.startsWith('%') || clean.startsWith('O') || clean.startsWith('<')) continue;
-          if (/\bG0?0\b/.test(clean)) modalRapid = true;
-          else if (/\bG0?[123]\b/.test(clean)) modalRapid = false;
-          const xm = clean.match(/(?:^|\s)X([-+]?\d*\.?\d+)/);
-          const zm = clean.match(/(?:^|\s)Z([-+]?\d*\.?\d+)/);
-          if (xm || zm) {
-            if (xm) curX = Math.abs(parseFloat(xm[1]));
-            if (zm) curZ = parseFloat(zm[1]);
-            motionMoves.push({ x: curX, z: curZ, rapid: modalRapid, text: clean });
-          }
-        }
-        if (motionMoves.length >= 2) {
-          motionMoves.forEach((m, idx) => {
-            snapshot(m.z, m.x, m.rapid, idx > motionMoves.length * 0.7 ? 'finish' : 'rough', m.text);
-          });
-          return moves;
-        }
-      }
-    } catch (e) { console.warn('Sim fallback:', e); }
-
-if (operation === 'Drilling' || operation === 'Tapping') {
+    if (operation === 'Drilling' || operation === 'Tapping') {
       const isTap = operation === 'Tapping';
       const drillDia = isTap
         ? Math.max(3, Number(mfgCfg.tapDia || 10) - Number(mfgCfg.tapPitch || 1.5))
@@ -903,7 +764,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
   const isVTL = machineType === 'VTL';
 
   const moves = useMemo(
-    () => buildStepMoves(domainKey, workSide, operation, templateName, mfgCfg, activeGcode),
+    () => buildStepMoves(domainKey, workSide, operation, templateName, mfgCfg),
     [domainKey, workSide, operation, templateName, mfgCfg]
   );
 
