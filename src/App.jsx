@@ -148,86 +148,38 @@ export default function App() {
 
   // Fast Auto-Discovery + 8s Timeout per model (Short, Simple & Direct English Output)
   const askGeminiAI = async (promptText, imageBase64 = null) => {
-    const raw = (promptText || '').trim();
-    const q = raw.toLowerCase();
-    const isGuj = /[\u0A80-\u0AFF]|\b(kem|shu|su|kevi|rite|mane|samjav|bol|aap|chhe|che|nathi|karvu|kro|mate|ama|ma|ne|kai|kya|ke|pn|pan|joye|joie)\b/i.test(raw);
+    const raw = String(arguments[0] || '').trim();
+    const isGuj = /[\u0A80-\u0AFF]|\b(kem|shu|su|kevi|rite|mane|samjav|bol|aap|chhe|che|nathi|karvu|kro|mate|ama|ma|ne|kai|kya|ke|pn|pan|joye|joie|karu)\b/i.test(raw);
 
-    if (imageBase64) {
-      return isGuj
-        ? "• Photo receive thai gayo chhe. Photo par no specific G-code, alarm number, athva dimension lakhi ne puchho etle hu exact solution aapu."
-        : "• Image received. Type the alarm number, G-code line, or dimension shown in the photo for an exact solution.";
-    }
+    const sysInstruction = isGuj
+      ? 'You are VECTRA, an expert CNC Programming & Applications Engineer (Fanuc, Siemens Sinumerik, Haas, Mazak, Turning & VMC Milling). Reply in natural, friendly Gujarati typed in English letters (Tanglish) or Gujarati script matching the user query, using clear shop-floor bullet points and exact G/M-code examples. Keep answers concise, practical, and directly focused on the user question.'
+      : 'You are VECTRA, an expert CNC Programming & Applications Engineer (Fanuc, Siemens Sinumerik, Haas, Mazak, Turning & VMC Milling). Reply in clear, practical, shop-floor English using short bullet points and exact G/M-code examples.';
 
-    // 1. Part Count (Milling & Turning Fanuc)
-    if (q.includes('part count') || q.includes('parts count') || q.includes('counter') || (q.includes('part') && q.includes('count'))) {
-      if (q.includes('mill') || q.includes('vmc')) {
-        return isGuj
-          ? "• Fanuc Milling (VMC) ma Part Count mate program na end ma M30 (athva parameter 6711 ma set karel M-code, jem ke M51/M72) vapray chhe.\n• Parameter 6711 = Count M-code (0 hoy to M02/M30 par count vadhe), Parameter 6712 = Total Parts Count, Parameter 6713 = Required Parts.\n• POS -> CURRENT screen par 'PARTS COUNT' jovay chhe ane tya thi 'COUNT' / 'RESET' softkey thi 0 kari shakay."
-          : "• On Fanuc Milling (VMC), part count increments at M30 (or the custom M-code set in Parameter 6711).\n• Key Parameters: 6711 (count trigger M-code; 0 = M02/M30), 6712 (accumulated part count), 6713 (required parts).\n• View on POS -> CURRENT screen and reset using the COUNT / RESET softkey.";
+    try {
+      const url = 'https://text.pollinations.ai/' + encodeURIComponent(raw) + '?system=' + encodeURIComponent(sysInstruction) + '&model=openai&seed=' + Date.now();
+      const res = await fetch(url);
+      if (res.ok) {
+        const txt = (await res.text()).trim();
+        if (txt && !txt.startsWith('<!DOCTYPE')) {
+          return txt.replace(/\*\*/g, '').replace(/```[a-z]*\n?/gi, '').replace(/```/g, '');
+        }
       }
-      return isGuj
-        ? "• Fanuc Turning & Milling banne ma program end par M30 (athva Parameter 6711 ma set M-code) thi Part Count 1 vadhe chhe.\n• Parameter 6711 = Count M-code, 6712 = Total Count, 6713 = Target/Required Parts.\n• Reset karva: POS -> CURRENT screen kholi 'COUNT' / 'RESET' softkey dabavo."
-        : "• On Fanuc Turning & Milling, M30 (or Parameter 6711 M-code) increments the Part Count by 1.\n• Parameters: 6711 (count M-code), 6712 (total count), 6713 (required parts).\n• To reset: Go to POS -> CURRENT screen and press COUNT / RESET.";
-    }
+    } catch (e) {}
 
-    // 2. G83 / G81 / G84 Drilling & Tapping
-    if (q.includes('g83') || q.includes('g81') || q.includes('g84') || q.includes('drill') || q.includes('tap')) {
+    const q = raw.toLowerCase();
+    if (q.includes('siemens') && (q.includes('sub') || q.includes('call'))) {
       return isGuj
-        ? "• Fanuc Drilling / Tapping Cycles:\n• G81 (Spot/Normal Drill): G81 Z-15.0 R2.0 F0.15;\n• G83 (Peck Drill): G83 Z-35.0 Q3000 R2.0 F0.12; (Q3000 = 3.0 mm peck)\n• G84 (Rigid Tapping): M29 S500; G84 Z-20.0 R3.0 F1.5; (F = Pitch)\n• Cycle puru thaya pachi G80; thi cancel karo."
-        : "• Fanuc Drilling & Tapping Cycles:\n• G81: G81 Z-15.0 R2.0 F0.15;\n• G83 Peck Drill: G83 Z-35.0 Q3000 R2.0 F0.12; (Q in microns: 3000 = 3mm)\n• G84 Rigid Tap: M29 S500; G84 Z-20.0 R3.0 F1.5; (F = Pitch)\n• Always cancel cycle with G80;";
+        ? '• Siemens (Sinumerik 828D / 840D) ma sub-program call karva mate 3 main rit chhe:\n• 1) Direct name thi: SUB_PROG (jo SUB_PROG.SPF subprograms folder ma hoy)\n• 2) CALL command thi: CALL "/_N_SPF_DIR/_N_SUB1_SPF"\n• 3) Multiple repeat mate: SUB_PROG P3 (3 var repeat thashe) ane sub-program na end ma M17 ya RET mukvu.'
+        : '• In Siemens Sinumerik (828D/840D), call a sub-program using:\n• 1) Direct call: SUB_PROG (saved as SUB_PROG.SPF)\n• 2) Full path: CALL "/_N_SPF_DIR/_N_SUB1_SPF"\n• 3) Repeat N times: SUB_PROG P3 and end with M17 or RET.';
     }
-
-    // 3. G71 / G70 Roughing & Finishing
-    if (q.includes('g71') || q.includes('g70') || q.includes('rough') || q.includes('finish')) {
+    if (q.includes('sub') && (q.includes('fanuc') || q.includes('call'))) {
       return isGuj
-        ? "• Fanuc G71 Roughing & G70 Finishing:\n• G71 U2.0 R1.0; (U = depth of cut, R = retract)\n• G71 P10 Q20 U0.4 W0.1 F0.22; (P10 thi Q20 profile, U/W finishing stock)\n• N10 ... profile ... N20;\n• G70 P10 Q20 F0.12; (Finishing pass)"
-        : "• Fanuc G71 Roughing & G70 Finishing:\n• G71 U2.0 R1.0; (U = radial DOC, R = retract)\n• G71 P10 Q20 U0.4 W0.1 F0.22; (P/Q = profile blocks, U/W = finish allowance)\n• G70 P10 Q20 F0.12; (Finish cycle)";
+        ? '• Fanuc ma sub-program call karva: M98 P1001; (O1001 call thashe) athva M98 P031001; (3 var repeat) ane sub-program end ma M99; mukvu.'
+        : '• In Fanuc, call a sub-program with M98 P1001; (or M98 P031001; for 3 repeats) and end with M99;.';
     }
-
-    // 4. G76 Threading
-    if (q.includes('g76') || q.includes('thread')) {
-      return isGuj
-        ? "• Fanuc G76 Threading Cycle:\n• G76 P020060 Q100 R0.05; (02 = spring passes, 60 = thread angle)\n• G76 X18.38 Z-25.0 P810 Q250 F1.5; (X = minor dia, P = height microns, Q = first cut, F = pitch)"
-        : "• Fanuc G76 Threading Cycle:\n• G76 P020060 Q100 R0.05; (02 = finish passes, 60 = angle)\n• G76 X18.38 Z-25.0 P810 Q250 F1.5; (X = core dia, P = height microns, F = pitch)";
-    }
-
-    // 5. G41 / G42 / G40 Nose Compensation
-    if (q.includes('g41') || q.includes('g42') || q.includes('g40') || q.includes('nose') || q.includes('tnrc') || q.includes('comp')) {
-      return isGuj
-        ? "• Tool Nose Radius Compensation (TNRC):\n• G41 = Tool left of profile (ID boring / facing), G42 = Tool right of profile (OD turning).\n• G01 line sathe G41/G42 start karo ane M30 pela G40; thi cancel karo.\n• Offset page ma T (Tool tip direction: OD = 3, ID = 2) ane R (Insert nose radius, jem ke 0.4 or 0.8) nakho."
-        : "• Tool Nose Radius Compensation (TNRC):\n• G41 = Cutter comp left (ID), G42 = Cutter comp right (OD).\n• Activate on a G01 approach move and cancel with G40 before M30.\n• Set Tip Direction T (OD=3, ID=2) and Nose Radius R (e.g., 0.4 or 0.8) in Offset Geometry.";
-    }
-
-    // 6. RPM / Cutting Speed / Feed calculation
-    const vcMatch = q.match(/(?:vc|speed)s*[=:]?s*(d+(?:.d+)?)/i);
-    const diaMatch = q.match(/(?:dia|d)s*[=:]?s*(d+(?:.d+)?)/i);
-    if (vcMatch && diaMatch) {
-      const vc = parseFloat(vcMatch[1]);
-      const d = parseFloat(diaMatch[1]);
-      const rpm = Math.round((vc * 1000) / (Math.PI * d));
-      return isGuj
-        ? `• Cutting Speed Vc = ${vc} m/min ane Diameter D = ${d} mm mate:\n• RPM = (Vc x 1000) / (3.14 x D) = ${rpm} RPM\n• Turning ma G96 S${vc} M03; (CSS) ane G50 S${Math.min(rpm + 500, 3500)}; vapro.`
-        : `• For Vc = ${vc} m/min and Diameter D = ${d} mm:\n• RPM = (Vc x 1000) / (3.14 x D) = ${rpm} RPM\n• Use G96 S${vc} M03; with G50 S${Math.min(rpm + 500, 3500)}; clamp.`;
-    }
-
-    // 7. M-codes & G-codes general reference
-    if (q.includes('m code') || q.includes('m-code') || q.includes('mcode')) {
-      return isGuj
-        ? "• Main Fanuc M-Codes:\n• M00 = Program Stop | M01 = Optional Stop | M03 = Spindle CW | M04 = Spindle CCW | M05 = Spindle Stop\n• M08 = Coolant ON | M09 = Coolant OFF | M10/M11 = Chuck Clamp/Unclamp | M30 = Program End & Reset | M98/M99 = Subprogram Call/Return"
-        : "• Common Fanuc M-Codes:\n• M00 = Program Stop | M01 = Optional Stop | M03 = Spindle CW | M04 = Spindle CCW | M05 = Spindle Stop\n• M08 = Coolant ON | M09 = Coolant OFF | M10/M11 = Chuck Clamp/Unclamp | M30 = End & Reset | M98/M99 = Subprogram";
-    }
-
-    if (q.includes('g code') || q.includes('g-code') || q.includes('gcode')) {
-      return isGuj
-        ? "• Main Fanuc Turning G-Codes:\n• G00 = Rapid | G01 = Linear Feed | G02/G03 = CW/CCW Arc | G04 = Dwell\n• G28 U0 W0 = Home Return | G40/G41/G42 = Nose Comp | G50 = Max RPM Clamp\n• G70 = Finish | G71 = OD/ID Rough | G72 = Face Rough | G74 = Peck Drill | G75 = Grooving | G76 = Threading | G96/G97 = CSS/Constant RPM"
-        : "• Common Fanuc Turning G-Codes:\n• G00 = Rapid | G01 = Linear | G02/G03 = CW/CCW Arc | G04 = Dwell\n• G28 U0 W0 = Reference Return | G40/G41/G42 = TNRC | G50 = Max Spindle Clamp\n• G70 = Finish | G71 = Rough | G72 = Facing | G74 = Peck Drill | G75 = Groove | G76 = Thread | G96/G97 = CSS/RPM";
-    }
-
-    // Default helpful response in user's language (No API key prompt!)
     return isGuj
-      ? `• "${raw}" mate direct CNC guide:\n• Jyoti / Fanuc controller ma aa topics par direct format ane parameter puchhi shako chho: Part Count (Milling/Turning), G71/G70 Rough-Finish, G76 Threading, G81/G83/G84 Drill-Tap, G41/G42 Nose Comp, M-codes, athva RPM calculation (jem ke: Vc 180 Dia 50).
-• Specific cycle number ke alarm code lakho etle exact G-code line aapu.`
-      : `• Direct CNC Assistant for "${raw}":\n• Ask directly about Part Count (Milling/Turning), G71/G70, G76 Threading, G81/G83/G84 Drill/Tap, G41/G42 TNRC, M-codes, or RPM calculation (e.g., Vc 180 Dia 50).\n• Mention the exact G-code or Fanuc parameter for step-by-step format.`;
+      ? '• Live AI server busy chhe — 2 second pachi fari Send dabavo.'
+      : '• Live AI server busy — please click Send again in 2 seconds.';
   };
 
   return (
@@ -249,7 +201,7 @@ export default function App() {
             Offline Ready
           </span>
           <button
-            onClick={() => setShowSettings(true)}
+            style={{display:"none"}}
             className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
             title="AI & Drive Settings"
           >
