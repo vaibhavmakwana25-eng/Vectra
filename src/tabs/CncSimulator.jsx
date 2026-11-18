@@ -407,7 +407,41 @@ if (operation === 'Drilling' || operation === 'Tapping') {
       }
 
       moves.push({ x: 0, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: maxDepthSoFar, gcode: 'G40 G00 Z25.0 M05' });
-    } else if (isFaceMill) {
+    } else 
+    // MILLING_GCODE_SYNC_ACTIVE: Parse actual X/Y/Z toolpath from selected Milling G-code
+    try {
+      const mLines = String(code || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const mPts = [];
+      let mx = 0, my = 0, mz = 25, mRapid = true;
+      for (const line of mLines) {
+        const clean = line.replace(/\([^)]*\)/g, '').trim().toUpperCase();
+        if (!clean || clean.startsWith('%') || clean.startsWith('O') || clean.startsWith('#')) continue;
+        if (/\bG0?0\b/.test(clean)) mRapid = true;
+        else if (/\bG0?[123]\b|\bG8[1-9]\b/.test(clean)) mRapid = false;
+        const xm = clean.match(/(?:^|\s)X([-+]?\d*\.?\d+)/);
+        const ym = clean.match(/(?:^|\s)Y([-+]?\d*\.?\d+)/);
+        const zm = clean.match(/(?:^|\s)Z([-+]?\d*\.?\d+)/);
+        if (xm || ym || zm) {
+          if (xm) mx = parseFloat(xm[1]);
+          if (ym) my = parseFloat(ym[1]);
+          if (zm) mz = parseFloat(zm[1]);
+          mPts.push({ x: mx, y: my, z: mz, rapid: mRapid, gcode: clean });
+        }
+      }
+      if (mPts.length >= 2) {
+        mPts.forEach((pt, idx) => {
+          const x = pt.x, y = pt.y, z = pt.z, rapid = pt.rapid;
+          const passType = rapid ? 'rapid' : (idx > mPts.length * 0.75 ? 'finish' : 'rough');
+          const gcode = pt.gcode;
+          moves.push({ x, y, z, rapid, passType, cutDepth: maxDepthSoFar, gcode})
+        });
+        return moves;
+      }
+    } catch (e) {
+      console.warn('Milling G-code sync fallback:', e);
+    }
+
+    if (isFaceMill) {
       // Zig-Zag Face Milling Passes across entire top surface (NO 5 holes!)
       const faceZ = -Math.max(1.5, Math.min(6, depth));
       const yRows = [-24, -12, 0, 12, 24];
