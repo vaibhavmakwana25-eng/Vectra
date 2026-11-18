@@ -316,10 +316,6 @@ export default function App() {
           })}
         </div>
       </nav>
-
-       className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
             </div>
 
             <div className="space-y-2">
