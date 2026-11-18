@@ -16,7 +16,6 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
 
   if (domainKey === 'Turning') {
     
-    // Extract exact dimensions from selected program G-code / Macro B (#500-#513 or X/Z lines)
     const codeLines = String(code || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const macroVars = {};
     const progX = [];
@@ -25,7 +24,7 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       const vm = line.match(/^#(\d+)\s*=\s*([-+]?\d*\.?\d+)/);
       if (vm) macroVars[vm[1]] = parseFloat(vm[2]);
       const clean = line.replace(/\([^)]*\)/g, '').toUpperCase();
-      if (!clean.startsWith('#') && !clean.startsWith('(') && !clean.startsWith('O')) {
+      if (!clean.startsWith('#') && !clean.startsWith('(') && !clean.startsWith('O') && !clean.startsWith('<')) {
         const xm = clean.match(/(?:^|\s)X([-+]?\d*\.?\d+)/);
         const zm = clean.match(/(?:^|\s)Z([-+]?\d*\.?\d+)/);
         if (xm) progX.push(Math.abs(parseFloat(xm[1])));
@@ -46,10 +45,10 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       if (isIdEccProg) {
         rawOD = 407;
         finOD = 407;
-        rawID = (macroVars['508'] && macroVars['508'] !== macroVars['500']) ? macroVars['508'] : 286;
+        rawID = 286;
       } else {
         rawOD = macroVars['500'];
-        finOD = (macroVars['508'] && macroVars['508'] !== macroVars['500']) ? macroVars['508'] : 340;
+        finOD = 340;
         rawID = 286;
       }
     } else if (progX.length >= 2 && operation !== 'Drilling' && operation !== 'Tapping') {
@@ -62,9 +61,7 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
         rawOD = Math.max(15, maxProgX);
         finOD = Math.max(8, minProgX || finOD);
       }
-      if (progZ.length > 0) {
-        partLen = Math.max(15, Math.max(...progZ));
-      }
+      if (progZ.length > 0) partLen = Math.max(15, Math.max(...progZ));
     }
 
     const isID = workSide === 'ID';
@@ -132,8 +129,7 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       for (let k = 1; k <= 14; k++) {
         const zNow = -((z3 * k) / 14);
         const absZ = Math.abs(zNow);
-        let curD = startD;
-        let ecc = 0;
+        let curD = startD, ecc = 0;
         if (absZ > z1 && absZ <= z2 && z2 > z1) {
           const t = (absZ - z1) / (z2 - z1);
           curD = startD + t * (endD - startD);
@@ -142,13 +138,7 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
           curD = endD;
           ecc = Math.abs(startD - endD) / 2;
         }
-        snapshot(
-          zNow,
-          curD,
-          false,
-          k < 14 ? 'rough' : 'finish',
-          `G3.6 L${120 + k * 10} R${ecc.toFixed(1)} Q${ecc.toFixed(1)} Z${zNow.toFixed(2)} S${sp}`
-        );
+        snapshot(zNow, curD, false, k < 14 ? 'rough' : 'finish', `G3.6 L${120 + k * 10} R${ecc.toFixed(1)} Q${ecc.toFixed(1)} Z${zNow.toFixed(2)} S${sp}`);
       }
       snapshot(-z3, safeX, true, 'rapid', `G00 X${safeX.toFixed(1)} (RETRACT)`);
       snapshot(15, safeX, true, 'rapid', 'G30 U0 W0 M05 M30');
@@ -407,41 +397,7 @@ if (operation === 'Drilling' || operation === 'Tapping') {
       }
 
       moves.push({ x: 0, y: 0, z: 25, rapid: true, passType: 'rapid', cutDepth: maxDepthSoFar, gcode: 'G40 G00 Z25.0 M05' });
-    } else 
-    // MILLING_GCODE_SYNC_ACTIVE: Parse actual X/Y/Z toolpath from selected Milling G-code
-    try {
-      const mLines = String(code || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      const mPts = [];
-      let mx = 0, my = 0, mz = 25, mRapid = true;
-      for (const line of mLines) {
-        const clean = line.replace(/\([^)]*\)/g, '').trim().toUpperCase();
-        if (!clean || clean.startsWith('%') || clean.startsWith('O') || clean.startsWith('#')) continue;
-        if (/\bG0?0\b/.test(clean)) mRapid = true;
-        else if (/\bG0?[123]\b|\bG8[1-9]\b/.test(clean)) mRapid = false;
-        const xm = clean.match(/(?:^|\s)X([-+]?\d*\.?\d+)/);
-        const ym = clean.match(/(?:^|\s)Y([-+]?\d*\.?\d+)/);
-        const zm = clean.match(/(?:^|\s)Z([-+]?\d*\.?\d+)/);
-        if (xm || ym || zm) {
-          if (xm) mx = parseFloat(xm[1]);
-          if (ym) my = parseFloat(ym[1]);
-          if (zm) mz = parseFloat(zm[1]);
-          mPts.push({ x: mx, y: my, z: mz, rapid: mRapid, gcode: clean });
-        }
-      }
-      if (mPts.length >= 2) {
-        mPts.forEach((pt, idx) => {
-          const x = pt.x, y = pt.y, z = pt.z, rapid = pt.rapid;
-          const passType = rapid ? 'rapid' : (idx > mPts.length * 0.75 ? 'finish' : 'rough');
-          const gcode = pt.gcode;
-          moves.push({ x, y, z, rapid, passType, cutDepth: maxDepthSoFar, gcode})
-        });
-        return moves;
-      }
-    } catch (e) {
-      console.warn('Milling G-code sync fallback:', e);
-    }
-
-    if (isFaceMill) {
+    } else if (isFaceMill) {
       // Zig-Zag Face Milling Passes across entire top surface (NO 5 holes!)
       const faceZ = -Math.max(1.5, Math.min(6, depth));
       const yRows = [-24, -12, 0, 12, 24];
