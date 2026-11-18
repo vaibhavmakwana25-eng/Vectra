@@ -817,7 +817,7 @@ function createOperationTooling(operation, isID, isVTL, discMat, cyanMat, steelS
   return assembly;
 }
 
-export default function CncSimulator({ domainKey, machineType, workSide, operation, templateName = '', mfgCfg = {} }) {
+export default function CncSimulator({ code = "", domainKey, machineType, workSide, operation, templateName = '', mfgCfg = {} }) {
   const [playing, setPlaying] = useState(true);
   const [stepIdx, setStepIdx] = useState(0);
   const [speed, setSpeed] = useState(1);
