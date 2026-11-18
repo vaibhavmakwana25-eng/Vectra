@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Play, Pause, RotateCcw, Box, ZoomIn, ZoomOut, Scissors } from 'lucide-react';
 
-function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}, code = '') {
+function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCfg = {}) {
   const moves = [];
   const tName = (templateName + ' ' + workSide + ' ' + operation).toUpperCase();
   const stage = mfgCfg.machiningStage || 'Rough + Finish Combined';
@@ -69,158 +69,7 @@ function buildStepMoves(domainKey, workSide, operation, templateName = '', mfgCf
       });
     };
 
-    
-    try {
-      const codeLines = String(code || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      if (codeLines.length > 2) {
-        // A. Parse Fanuc Macro B variables (#500, #501, #506, #508, #509, #513, etc.)
-        const vars = {};
-        for (const line of codeLines) {
-          const m = line.match(/^#(\d+)\s*=\s*([-+]?\d*\.?\d+)/);
-          if (m) vars[m[1]] = parseFloat(m[2]);
-        }
-
-        // Eccentric Reducer Macro B (G3.6) - works for OD (407->340) & ID (353->286)
-        if (vars['500'] && vars['513']) {
-          const startDia = vars['500'];
-          const endDia = (vars['508'] && vars['508'] !== startDia)
-            ? vars['508']
-            : (isID || TName.includes('ID ECCENTRIC') ? 286.0 : 340.0);
-          const z1 = vars['506'] || 25.0;
-          const z2 = vars['509'] || (vars['513'] - 25.0);
-          const z3 = vars['513'];
-          const sp = vars['501'] || 70;
-          const isMacroID = isID || TName.includes('ID ECCENTRIC') || startDia < 380;
-
-          const dynLen = Math.max(20, z3);
-          const dynRawOD = isMacroID ? Math.max(startDia + 54, 407) : startDia;
-          const dynRawID = isMacroID ? Math.max(20, endDia) : 0;
-
-          odProfile.fill(dynRawOD);
-          idProfile.fill(dynRawID);
-          passTagProfile.fill('raw');
-
-          const macroSnap = (zVal, curDia, rapid, passType, gcodeTxt) => {
-            const distFromFace = Math.max(0, Math.min(dynLen, -zVal));
-            const sliceIdx = Math.min(zSlices, Math.round((distFromFace / dynLen) * zSlices));
-            if (!rapid) {
-              for (let i = 0; i <= sliceIdx; i++) {
-                if (isMacroID) {
-                  if (curDia >= idProfile[i]) { idProfile[i] = curDia; passTagProfile[i] = passType; }
-                } else {
-                  if (curDia <= odProfile[i]) { odProfile[i] = curDia; passTagProfile[i] = passType; }
-                }
-              }
-            }
-            moves.push({
-              x: curDia, y: 0, z: zVal, rapid, passType,
-              odProfile: [...odProfile],
-              idProfile: [...idProfile],
-              passTagProfile: [...passTagProfile],
-              threadProgressZ: 0,
-              threadDepthRatio: 0,
-              faceTrimZ: 0,
-              curOD: isMacroID ? dynRawOD : odProfile[Math.max(0, sliceIdx)],
-              curID: isMacroID ? idProfile[Math.max(0, sliceIdx)] : 0,
-              gcode: gcodeTxt
-            });
-          };
-
-          const safeX = isMacroID ? Math.max(20, endDia - 20) : startDia + 40;
-          macroSnap(12, safeX, true, 'rapid', `G00 X${safeX.toFixed(1)} Z12.0 (APPROACH)`);
-          macroSnap(0, startDia, true, 'rapid', `G3.6 L10 R0.0 Q0.0 X${startDia.toFixed(1)} S${sp}`);
-          const steps = 14;
-          for (let k = 1; k <= steps; k++) {
-            const zNow = -((z3 * k) / steps);
-            const absZ = Math.abs(zNow);
-            let curDia = startDia;
-            let ecc = 0;
-            if (absZ > z1 && absZ <= z2 && z2 > z1) {
-              const t = (absZ - z1) / (z2 - z1);
-              curDia = startDia + t * (endDia - startDia);
-              ecc = (t * Math.abs(startDia - endDia)) / 2;
-            } else if (absZ > z2) {
-              curDia = endDia;
-              ecc = Math.abs(startDia - endDia) / 2;
-            }
-            macroSnap(
-              zNow,
-              curDia,
-              false,
-              k < steps ? 'rough' : 'finish',
-              `G3.6 L${120 + k * 10} R${ecc.toFixed(1)} Q${ecc.toFixed(1)} Z${zNow.toFixed(2)} S${sp}`
-            );
-          }
-          macroSnap(-z3, safeX, true, 'rapid', `G00 X${safeX.toFixed(1)} (RETRACT)`);
-          macroSnap(15, safeX, true, 'rapid', 'G30 U0 W0 M05 M30');
-          return moves;
-        }
-
-        // B. Parse standard ISO G-code blocks (G00/G01/G02/G03/G71/G76/G75/G74/G81-G84)
-        const parsedMoves = [];
-        let curX = isID ? rawID : rawOD;
-        let curZ = 5;
-        let modalRapid = true;
-
-        for (const line of codeLines) {
-          const clean = line.replace(/\([^)]*\)/g, '').trim().toUpperCase();
-          if (!clean || clean.startsWith('%') || clean.startsWith('O') || clean.startsWith('<') || clean.startsWith('#')) continue;
-          if (/\bG0?0\b/.test(clean)) modalRapid = true;
-          else if (/\bG0?[123]\b/.test(clean)) modalRapid = false;
-
-          const xm = clean.match(/(?:^|\s)X([-+]?\d*\.?\d+)/);
-          const zm = clean.match(/(?:^|\s)Z([-+]?\d*\.?\d+)/);
-          if (xm || zm) {
-            if (xm) curX = Math.abs(parseFloat(xm[1]));
-            if (zm) curZ = parseFloat(zm[1]);
-            parsedMoves.push({ x: curX, z: curZ, rapid: modalRapid, text: clean });
-          }
-        }
-
-        if (parsedMoves.length >= 2) {
-          const maxX = Math.max(...parsedMoves.map(m => m.x), isID ? rawID + 10 : finOD);
-          const minZ = Math.min(...parsedMoves.map(m => m.z), -10);
-          const dynLen = Math.max(15, Math.abs(minZ) + 5);
-          const dynRawOD = isID ? Math.max(rawOD, maxX + 30) : Math.max(rawOD, maxX);
-
-          odProfile.fill(dynRawOD);
-          idProfile.fill(isID ? Math.max(10, rawID) : 0);
-          passTagProfile.fill('raw');
-
-          parsedMoves.forEach((m, idx) => {
-            const distFromFace = Math.max(0, Math.min(dynLen, -m.z));
-            const sliceIdx = Math.min(zSlices, Math.round((distFromFace / dynLen) * zSlices));
-            const pType = m.rapid ? 'rapid' : (idx > parsedMoves.length * 0.7 ? 'finish' : 'rough');
-            if (!m.rapid) {
-              for (let i = 0; i <= sliceIdx; i++) {
-                if (isID) {
-                  if (m.x >= idProfile[i]) { idProfile[i] = m.x; passTagProfile[i] = pType; }
-                } else {
-                  if (m.x <= odProfile[i]) { odProfile[i] = m.x; passTagProfile[i] = pType; }
-                }
-              }
-            }
-            moves.push({
-              x: m.x, y: 0, z: m.z, rapid: m.rapid, passType: pType,
-              odProfile: [...odProfile],
-              idProfile: [...idProfile],
-              passTagProfile: [...passTagProfile],
-              threadProgressZ: 0,
-              threadDepthRatio: 0,
-              faceTrimZ: 0,
-              curOD: isID ? dynRawOD : odProfile[Math.max(0, sliceIdx)],
-              curID: isID ? idProfile[Math.max(0, sliceIdx)] : 0,
-              gcode: m.text
-            });
-          });
-          return moves;
-        }
-      }
-    } catch (err) {
-      console.warn('G-code parser fallback:', err);
-    }
-
-if (operation === 'Drilling' || operation === 'Tapping') {
+    if (operation === 'Drilling' || operation === 'Tapping') {
       const isTap = operation === 'Tapping';
       const drillDia = isTap
         ? Math.max(3, Number(mfgCfg.tapDia || 10) - Number(mfgCfg.tapPitch || 1.5))
@@ -915,7 +764,7 @@ export default function CncSimulator({ domainKey, machineType, workSide, operati
   const isVTL = machineType === 'VTL';
 
   const moves = useMemo(
-    () => buildStepMoves(domainKey, workSide, operation, templateName, mfgCfg, code),
+    () => buildStepMoves(domainKey, workSide, operation, templateName, mfgCfg),
     [domainKey, workSide, operation, templateName, mfgCfg]
   );
 
